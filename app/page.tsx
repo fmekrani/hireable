@@ -1,16 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import Sidebar from '@/components/Sidebar'
+import TopBar from '@/components/TopBar'
 import JobForm from '@/components/JobForm'
 import ResultsCards from '@/components/ResultsCards'
 import ChatWidget from '@/components/ChatWidget'
-import { mockJobs, mockResults, Job, JobResult } from '@/lib/mockData'
+import { mockJobs, mockResults, JobResult } from '@/lib/mockData'
 
 export default function Home() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [results, setResults] = useState<JobResult | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   const selectedJob = selectedJobId
     ? mockJobs.find((job) => job.id === selectedJobId)
@@ -27,12 +28,16 @@ export default function Home() {
   }
 
   const handleAnalyze = () => {
-    // For a new job, load mock results from the first job
-    setResults(mockResults['1'])
+    setIsAnalyzing(true)
+    // Simulate loading delay
+    setTimeout(() => {
+      setResults(mockResults['1'])
+      setIsAnalyzing(false)
+    }, 2000)
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen">
       {/* Sidebar */}
       <Sidebar
         jobs={mockJobs}
@@ -43,27 +48,7 @@ export default function Home() {
       {/* Main content */}
       <main className="flex-1 md:ml-0 ml-0 overflow-auto">
         {/* Top bar */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 shadow-sm z-30">
-          <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Job Prep Dashboard
-            </h1>
-            <div className="flex gap-3">
-              <Link
-                href="/calendar"
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium text-gray-700"
-              >
-                Calendar
-              </Link>
-              <Link
-                href="/mock-interview"
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-medium"
-              >
-                Mock Interview
-              </Link>
-            </div>
-          </div>
-        </div>
+        <TopBar />
 
         {/* Content */}
         <div className="max-w-6xl mx-auto px-6 py-6 pb-20 md:pb-6">
@@ -71,9 +56,10 @@ export default function Home() {
             selectedJob={selectedJob ?? null}
             onAnalyze={handleAnalyze}
             onResultsChange={setResults}
+            isAnalyzing={isAnalyzing}
           />
 
-          <ResultsCards results={results} />
+          <ResultsCards results={results} isLoading={isAnalyzing} />
 
           {/* Mobile chat */}
           <div className="md:hidden">

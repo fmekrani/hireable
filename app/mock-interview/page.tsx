@@ -2,81 +2,109 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import { ArrowLeft, Mic, Play, Square, MessageCircle, Video, Sparkles } from 'lucide-react'
 
 export default function MockInterviewPage() {
   const [started, setStarted] = useState(false)
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50/80">
       <div className="max-w-4xl mx-auto px-6 py-8">
-        <Link href="/" className="text-blue-600 hover:text-blue-800 mb-6 block">
-          ← Back to Dashboard
+        <Link 
+          href="/" 
+          className="inline-flex items-center gap-2 text-slate-600 hover:text-indigo-600 mb-8 group transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          <span className="text-sm font-medium">Back to Dashboard</span>
         </Link>
 
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          AI Mock Interview
-        </h1>
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <Mic className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">AI Mock Interview</h1>
+            <p className="text-sm text-slate-500">Practice makes perfect</p>
+          </div>
+        </div>
 
         {!started ? (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
-            <div className="mb-6">
-              <div className="inline-block p-4 bg-blue-100 rounded-full mb-4">
-                <svg
-                  className="w-8 h-8 text-blue-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-soft border border-slate-200/60 p-10 text-center">
+            <div className="flex justify-center gap-4 mb-8">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center">
+                <Video className="w-8 h-8 text-indigo-600" />
+              </div>
+              <div className="w-16 h-16 rounded-2xl bg-violet-100 flex items-center justify-center">
+                <Mic className="w-8 h-8 text-violet-600" />
+              </div>
+              <div className="w-16 h-16 rounded-2xl bg-teal-100 flex items-center justify-center">
+                <MessageCircle className="w-8 h-8 text-teal-600" />
               </div>
             </div>
 
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">
+            <h2 className="text-2xl font-bold text-slate-900 mb-3">
               Ready for a mock interview?
             </h2>
 
-            <p className="text-gray-600 mb-8 max-w-md mx-auto">
+            <p className="text-slate-500 mb-8 max-w-md mx-auto leading-relaxed">
               Practice your interview skills with AI. Answer common questions and
-              get feedback on your responses.
+              get real-time feedback on your responses.
             </p>
 
             <button
               onClick={() => setStarted(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition inline-block"
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold py-3.5 px-8 rounded-xl shadow-lg shadow-indigo-500/30 transition-all duration-200 active:scale-[0.98]"
             >
-              Start Interview
+              <Play className="w-5 h-5" />
+              <span>Start Interview</span>
             </button>
           </div>
         ) : (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <p className="text-gray-600 text-center mb-6">
-              Interview session started. This is a placeholder for the AI
-              interview feature.
-            </p>
-
-            <div className="bg-gray-50 rounded-lg p-6 mb-6">
-              <p className="text-gray-700 font-semibold mb-4">
-                Question 1: Tell me about yourself
-              </p>
-              <input
-                type="text"
-                placeholder="Your answer here..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-soft border border-slate-200/60 overflow-hidden">
+            {/* Interview header */}
+            <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Interview in Progress</p>
+                  <p className="text-xs text-white/70">Question 1 of 5</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                <span className="text-xs font-medium">Recording</span>
+              </div>
             </div>
 
-            <button
-              onClick={() => setStarted(false)}
-              className="bg-gray-300 hover:bg-gray-400 text-gray-900 font-semibold py-2 px-6 rounded-lg transition"
-            >
-              End Interview
-            </button>
+            <div className="p-8">
+              <div className="bg-gradient-to-r from-slate-50 to-indigo-50/30 rounded-xl p-6 mb-6 border border-slate-200/60">
+                <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">Question</p>
+                <p className="text-lg font-semibold text-slate-900">
+                  Tell me about yourself and your experience.
+                </p>
+              </div>
+
+              <textarea
+                placeholder="Type your answer here or use voice recording..."
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:bg-white transition-all resize-none h-32 mb-6"
+              />
+
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setStarted(false)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors"
+                >
+                  <Square className="w-4 h-4" />
+                  <span>End Interview</span>
+                </button>
+                <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-medium rounded-xl shadow-lg shadow-indigo-500/25 transition-all active:scale-[0.98]">
+                  <span>Next Question</span>
+                  <ArrowLeft className="w-4 h-4 rotate-180" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
