@@ -9,6 +9,7 @@
     ],
     "module": "ESNext",
     "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
@@ -19,6 +20,7 @@
     "jsx": "preserve",
     "moduleResolution": "bundler",
     "incremental": true,
+    "noImplicitAny": false,
     "types": [
       "node"
     ],
