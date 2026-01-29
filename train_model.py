@@ -20,7 +20,7 @@ try:
     print("\n📦 Loading TensorFlow...")
     import tensorflow as tf
     from tensorflow import keras
-    from tensorflow.keras import layers
+    from tensorflow.keras import layers, callbacks
     print(f"✅ TensorFlow {tf.__version__} loaded")
 
     # Load training data
@@ -56,9 +56,9 @@ try:
             example['jobFeatures']['employmentTypeScore'] / 3,
         ])
         
-        # Add skill vectors
-        features.extend(example['resumeFeatures']['skillVector'][:50])  # first 50
-        features.extend(example['jobFeatures']['skillVector'][:50])     # first 50
+        # Add skill vectors (exactly 40 each to total 90 features)
+        features.extend(example['resumeFeatures']['skillVector'][:40])  # first 40
+        features.extend(example['jobFeatures']['skillVector'][:40])     # first 40
         
         X.append(features)
         
@@ -151,7 +151,7 @@ try:
         batch_size=32,
         verbose=1,
         callbacks=[
-            keras.callbacks.EarlyStopping(
+            callbacks.EarlyStopping(
                 monitor='val_loss',
                 patience=15,
                 restore_best_weights=True

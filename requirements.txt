@@ -1,0 +1,4 @@
+# Python dependencies for Hireable scraper
+
+requests==2.32.5
+beautifulsoup4==4.14.3
