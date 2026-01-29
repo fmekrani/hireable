@@ -56,9 +56,9 @@ try:
             example['jobFeatures']['employmentTypeScore'] / 3,
         ])
         
-        # Add skill vectors
-        features.extend(example['resumeFeatures']['skillVector'][:50])  # first 50
-        features.extend(example['jobFeatures']['skillVector'][:50])     # first 50
+        # Add skill vectors (exactly 40 each to total 90 features)
+        features.extend(example['resumeFeatures']['skillVector'][:40])  # first 40
+        features.extend(example['jobFeatures']['skillVector'][:40])     # first 40
         
         X.append(features)
         
