@@ -20,7 +20,7 @@ try:
     print("\n📦 Loading TensorFlow...")
     import tensorflow as tf
     from tensorflow import keras
-    from tensorflow.keras import layers
+    from tensorflow.keras import layers, callbacks
     print(f"✅ TensorFlow {tf.__version__} loaded")
 
     # Load training data
@@ -151,7 +151,7 @@ try:
         batch_size=32,
         verbose=1,
         callbacks=[
-            keras.callbacks.EarlyStopping(
+            callbacks.EarlyStopping(
                 monitor='val_loss',
                 patience=15,
                 restore_best_weights=True
