@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, NextRequest } from 'next/server'
 import { getCompanyConfig, getAvailableCompanies } from '@/lib/scrapers/companies'
 import { spawn } from 'child_process'
 import { promises as fs } from 'fs'
@@ -29,7 +29,7 @@ interface JobOutput {
  * Request: { "companyName": "Google", "maxPages": 2 }
  * Response: { "success": true, "company": "Google", "jobs": [...] }
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body: ScrapeRequest = await request.json()
     const { companyName, maxPages = 2 } = body
@@ -134,7 +134,7 @@ export async function POST(request: Request) {
  * 
  * List available companies and show API usage
  */
-export async function GET() {
+export async function GET(): Promise<NextResponse> {
   return NextResponse.json({
     message: 'Job scraper API',
     availableCompanies: getAvailableCompanies(),
