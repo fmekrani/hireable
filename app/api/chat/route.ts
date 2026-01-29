@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateWithOllama, isOllamaAvailable } from '@/lib/ml/ollama';
 import { ResumeParsed } from '@/lib/resume/parse';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export type JobOutput = {
   title: string;
@@ -16,6 +17,7 @@ export type JobOutput = {
 export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+  timestamp?: string;
 };
 
 export type ChatResponse = {
@@ -23,6 +25,7 @@ export type ChatResponse = {
   data?: {
     message: string;
     followUpQuestions?: string[];
+    conversationId?: string;
   };
   error?: string;
 };
@@ -44,7 +47,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { message, resume, job, predictions, conversationHistory } = body as {
+    const { message, resume, job, predictions, conversationHistory, userId, analysisId } = body as {
       message: string;
       resume: ResumeParsed;
       job: JobOutput;
@@ -55,6 +58,8 @@ export async function POST(
         weeks: number;
       };
       conversationHistory?: ChatMessage[];
+      userId?: string;
+      analysisId?: string;
     };
 
     if (!message || !resume || !job) {
@@ -76,11 +81,53 @@ export async function POST(
     // Call Ollama for response
     const response = await generateWithOllama(prompt);
 
+    // Prepare messages with timestamps
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+    };
+
+    const assistantMessage: ChatMessage = {
+      role: 'assistant',
+      content: response.trim(),
+      timestamp: new Date().toISOString(),
+    };
+
+    const updatedHistory = [...(conversationHistory || []), userMessage, assistantMessage];
+
+    // Save to Supabase if userId provided
+    let conversationId: string | undefined;
+    if (userId) {
+      try {
+        // Update or create conversation
+        const { data, error } = await supabaseAdmin
+          .from('conversations')
+          .insert({
+            user_id: userId,
+            analysis_run_id: analysisId,
+            messages: updatedHistory,
+          })
+          .select('id')
+          .single();
+
+        if (error) {
+          console.error('Error saving conversation:', error);
+        } else if (data) {
+          conversationId = data.id;
+        }
+      } catch (dbError) {
+        console.error('Database error:', dbError);
+        // Continue even if save fails
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         message: response.trim(),
         followUpQuestions: generateFollowUpQuestions(message),
+        conversationId,
       },
     });
   } catch (error: any) {

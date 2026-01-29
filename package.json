@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.93.2",
     "@tensorflow/tfjs": "^4.22.0",
     "axios": "^1.13.4",
     "lucide-react": "^0.563.0",
