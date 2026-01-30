@@ -6,7 +6,8 @@ import {
   Calendar, 
   Mic, 
   ChevronRight,
-  LayoutDashboard
+  LayoutDashboard,
+  LogIn
 } from 'lucide-react'
 
 interface TopBarProps {
@@ -41,6 +42,13 @@ export default function TopBar({
 
           {/* Right section - Action buttons */}
           <div className="flex items-center gap-3">
+            <Link
+              href="/auth/login"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-full text-sm font-medium text-blue-700 transition-all duration-200 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-1"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Sign In</span>
+            </Link>
             <Link
               href="/calendar"
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full text-sm font-medium text-slate-700 transition-all duration-200 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:ring-offset-1"

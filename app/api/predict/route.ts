@@ -5,6 +5,7 @@ import path from 'path';
 import { extractFeatures, calculateSkillMatch, estimateWeeksToLearn } from '@/lib/ml/featureExtraction';
 import { generateRecommendations, Recommendation } from '@/lib/ml/recommendations';
 import { ResumeParsed } from '@/lib/resume/parse';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 
 const execAsync = promisify(exec);
 
@@ -27,6 +28,7 @@ export type PredictionResponse = {
     missingSkills: string[];
     timeline: Array<{ skill: string; weeks: number }>;
     recommendations: Recommendation[];
+    analysisId?: string;
   };
   error?: string;
 };
@@ -35,7 +37,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<Predictio
   try {
     // Parse request body
     const body = await request.json();
-    const { resume, job } = body as { resume: ResumeParsed; job: JobOutput };
+    const { resume, job, userId, resumeId, jobSearchId } = body as { 
+      resume: ResumeParsed; 
+      job: JobOutput;
+      userId?: string;
+      resumeId?: string;
+      jobSearchId?: string;
+    };
 
     // Validate inputs
     if (!resume || !job) {
@@ -73,8 +81,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<Predictio
       predictions = JSON.parse(stdout);
     } catch (pythonError: any) {
       console.error('Python prediction error:', pythonError);
-      // Fallback: Use model from Node.js (if TensorFlow.js available)
-      // For now, return error
       return NextResponse.json(
         { success: false, error: 'Failed to run model predictions' },
         { status: 500 }
@@ -98,6 +104,57 @@ export async function POST(request: NextRequest): Promise<NextResponse<Predictio
       readinessScore,
       matched,
       missing
+    );
+
+    // Step 6: Save to Supabase if userId provided
+    let analysisId: string | undefined;
+    if (userId) {
+      try {
+        const { data, error } = await supabaseAdmin
+          .from('analysis_runs')
+          .insert({
+            user_id: userId,
+            resume_id: resumeId,
+            job_search_id: jobSearchId,
+            readiness_score: readinessScore,
+            matched_skills: matched,
+            missing_skills: missing,
+            weeks_to_learn: predictions.weeks,
+            recommendations: recommendations,
+          })
+          .select('id')
+          .single();
+
+        if (error) {
+          console.error('Error saving analysis:', error);
+        } else if (data) {
+          analysisId = data.id;
+        }
+      } catch (dbError) {
+        console.error('Database error:', dbError);
+        // Continue even if save fails
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        readiness: Math.round(readinessScore * 100),
+        matchedSkills: matched,
+        missingSkills: missing,
+        timeline,
+        recommendations,
+        analysisId,
+      },
+    });
+  } catch (error) {
+    console.error('API error:', error);
+    return NextResponse.json(
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}
     );
 
     // Return prediction response
