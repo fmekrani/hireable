@@ -554,7 +554,7 @@ const createParticles = (
   color: string,
   alignment: "left" | "center" | "right"
 ) => {
-  const particles = [];
+  const particles: Particle[] = [];
 
   // Clear any previous content
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -616,7 +616,7 @@ const createParticles = (
       if (alpha > 0) {
         // Remove density from opacity calculation
         const originalAlpha = alpha / 255 * (sampleRate / currentDPR);
-        const particle = {
+        const particle: Particle = {
           x,
           y,
           originalX: x,

@@ -12,7 +12,6 @@ export default function HomePage() {
       {showSplash && (
         <VaporizeSplash 
           onComplete={() => setShowSplash(false)}
-          duration={6}
         />
       )}
       <EtherealBeamsHero />
