@@ -3,7 +3,7 @@
 import { motion, useScroll, useTransform } from "framer-motion"
 import { useRef } from "react"
 import Link from "next/link"
-import { ArrowRight, Mic, Sparkles, Zap, BookOpen, Clock } from "lucide-react"
+import { ArrowRight, Mic, Sparkles, Zap, BookOpen, Clock, LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // Animated CTA Button with glow
@@ -68,7 +68,7 @@ function GlowButton({
 }
 
 // Feature pill with glow
-function FeaturePill({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+function FeaturePill({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
   return (
     <motion.div
       whileHover={{ scale: 1.03, y: -1 }}

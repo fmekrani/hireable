@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import { motion } from "framer-motion"
 import {
   Zap,
@@ -12,7 +13,8 @@ import {
   Wrench,
   Lightbulb,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  LucideIcon
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { GlowingCard } from "@/components/ui/glowing-effect"
@@ -26,8 +28,11 @@ export interface JobResult {
   readinessScore?: number
 }
 
+// Skill category type
+type SkillCategory = { label: string; color: string; icon: LucideIcon }
+
 // Skill category mapping
-const skillCategories: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+const skillCategories: Record<string, SkillCategory> = {
   React: { label: "Core", color: "bg-primary/10 text-primary border-primary/20", icon: Target },
   TypeScript: { label: "Core", color: "bg-primary/10 text-primary border-primary/20", icon: Target },
   JavaScript: { label: "Core", color: "bg-primary/10 text-primary border-primary/20", icon: Target },
@@ -40,14 +45,14 @@ const skillCategories: Record<string, { label: string; color: string; icon: Reac
   "System Design": { label: "Concepts", color: "bg-amber-500/10 text-amber-400 border-amber-500/20", icon: Lightbulb },
 }
 
-function getSkillCategory(skill: string) {
-  return (
-    skillCategories[skill] || {
-      label: "Skill",
-      color: "bg-muted text-muted-foreground border-border",
-      icon: Zap,
-    }
-  )
+const defaultSkillCategory: SkillCategory = {
+  label: "Skill",
+  color: "bg-muted text-muted-foreground border-border",
+  icon: Zap,
+}
+
+function getSkillCategory(skill: string): SkillCategory {
+  return skillCategories[skill] || defaultSkillCategory
 }
 
 const priorityColors = {
@@ -222,6 +227,7 @@ export function ResultsCards({ results, isLoading }: ResultsCardsProps) {
             <div className="flex flex-wrap gap-2">
               {results.skills.map((skill, idx) => {
                 const category = getSkillCategory(skill)
+                const IconComponent = category.icon
                 return (
                   <motion.span
                     key={idx}
@@ -233,7 +239,7 @@ export function ResultsCards({ results, isLoading }: ResultsCardsProps) {
                       category.color
                     )}
                   >
-                    <category.icon className="w-3 h-3" />
+                    <IconComponent className="w-3 h-3" />
                     {skill}
                   </motion.span>
                 )

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // Protected routes that require authentication
-const protectedRoutes = ['/dashboard', '/profile', '/analysis', '/calendar', '/history', '/settings']
+const protectedRoutes = ['/dashboard', '/profile', '/history', '/settings']
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -24,13 +24,17 @@ export function middleware(request: NextRequest) {
     cookieHeader.includes('sb-') ||
     // Also check for the session cookie directly
     request.cookies.has('auth') ||
-    // Check if any cookie starting with 'sb' exists (Supabase session)
-    Array.from(request.cookies.getSetCookie()).some((cookie: string) => cookie.includes('auth'))
+    // Fallback: inspect raw cookie header for any cookie names/values containing 'sb' or 'auth'
+    cookieHeader
+      .split(';')
+      .map(c => c.trim())
+      .filter(Boolean)
+      .some((cookie: string) => cookie.startsWith('sb') || cookie.includes('auth'))
 
   if (!hasAuthToken) {
-    // Redirect to login if no auth token found
-    console.log('[Middleware] No auth token found, redirecting to login:', pathname)
-    return NextResponse.redirect(new URL('/auth/login', request.url))
+    // Redirect to root landing page if no auth token found
+    console.log('[Middleware] No auth token found, redirecting to home:', pathname)
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
   // Allow request to proceed
@@ -38,5 +42,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/profile/:path*', '/analysis/:path*', '/calendar/:path*', '/history/:path*', '/settings/:path*'],
+  matcher: ['/dashboard/:path*', '/profile/:path*', '/history/:path*', '/settings/:path*'],
 }
