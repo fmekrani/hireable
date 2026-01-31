@@ -22,11 +22,11 @@ import {
   BarChart3,
   Video,
   Calendar,
-  User,
   Trash2,
   History
 } from 'lucide-react'
 import { LimelightNav } from '@/components/ui/limelight-nav-new'
+import { ProfileDropdown } from '@/components/ui/profile-dropdown'
 import { cn } from '@/lib/utils'
 
 // Mock data for previous analyses
@@ -54,7 +54,6 @@ const navItems = [
   { id: "analysis", icon: <BarChart3 />, label: "Analysis", href: "/analysis" },
   { id: "interview", icon: <Video />, label: "Interview", href: "/interview" },
   { id: "calendar", icon: <Calendar />, label: "Calendar", href: "/calendar" },
-  { id: "profile", icon: <User />, label: "Profile", href: "/sign-in" },
 ]
 
 export default function AnalysisPage() {
@@ -82,8 +81,9 @@ export default function AnalysisPage() {
     <div className="min-h-screen bg-gradient-to-br from-black via-black to-black/80 text-white overflow-x-hidden">
       {/* Top Navigation */}
       <div className="fixed top-0 left-0 right-0 z-40 bg-black/40 backdrop-blur-2xl border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-center">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <LimelightNav items={navItems} />
+          <ProfileDropdown />
         </div>
       </div>
 

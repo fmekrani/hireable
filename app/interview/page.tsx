@@ -2,14 +2,14 @@
 
 import { motion } from 'framer-motion'
 import { LimelightNav } from '@/components/ui/limelight-nav-new'
-import { Video, Home, BarChart3, Calendar, User, Sparkles, ArrowRight, Clock, Users, Mic, CheckCircle } from 'lucide-react'
+import { ProfileDropdown } from '@/components/ui/profile-dropdown'
+import { Video, Home, BarChart3, Calendar, Sparkles, ArrowRight, Clock, Users, Mic, CheckCircle } from 'lucide-react'
 
 const navItems = [
   { id: "home", icon: <Home />, label: "Home", href: "/" },
   { id: "analysis", icon: <BarChart3 />, label: "Analysis", href: "/analysis" },
   { id: "interview", icon: <Video />, label: "Interview", href: "/interview" },
   { id: "calendar", icon: <Calendar />, label: "Calendar", href: "/calendar" },
-  { id: "profile", icon: <User />, label: "Profile", href: "/profile" },
 ]
 
 const upcomingInterviews = [
@@ -23,8 +23,9 @@ export default function InterviewPage() {
     <div className="min-h-screen bg-gradient-to-br from-black via-black to-black/80 text-white overflow-x-hidden">
       {/* Top Navigation */}
       <div className="fixed top-0 left-0 right-0 z-40 bg-black/40 backdrop-blur-2xl border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-center">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <LimelightNav items={navItems} />
+          <ProfileDropdown />
         </div>
       </div>
 
@@ -48,7 +49,7 @@ export default function InterviewPage() {
                 <Video className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-4xl md:text-5xl font-bold text-white">Mock Interviews</h1>
+                <h1 className="text-4xl md:text-5xl font-bold text-white">AI Interviewer</h1>
                 <p className="text-white/60">Practice and prepare for your upcoming interviews</p>
               </div>
             </div>
@@ -64,7 +65,7 @@ export default function InterviewPage() {
           >
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-2xl font-bold text-white mb-2">Start a Mock Interview</h3>
+                <h3 className="text-2xl font-bold text-white mb-2">Start AI Interview</h3>
                 <p className="text-white/60">Get AI-powered feedback on your interview skills</p>
               </div>
               <Sparkles className="w-8 h-8 text-pink-400" />

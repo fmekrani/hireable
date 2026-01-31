@@ -3,9 +3,12 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/supabase/auth-context";
 import { cn } from "@/lib/utils";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { Check, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 
 type Uniforms = {
   [key: string]: {
@@ -367,19 +370,45 @@ export const SignInPage = ({ className }: SignInPageProps) => {
   const [step, setStep] = useState<"credentials" | "success">("credentials")
   const [initialCanvasVisible, setInitialCanvasVisible] = useState(true);
   const [reverseCanvasVisible, setReverseCanvasVisible] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const { signIn, session } = useAuth();
+  const router = useRouter();
 
-  const handleCredentialsSubmit = (e: React.FormEvent) => {
+  const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email && password) {
+    if (!email || !password) return;
+
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      // Call Supabase authentication
+      await signIn(email, password);
+      
+      // Show success animation
       setReverseCanvasVisible(true);
       setTimeout(() => {
         setInitialCanvasVisible(false);
-      }, 50);
+      }, 20);
       setTimeout(() => {
         setStep("success");
-      }, 2000);
+      }, 1200);
+    } catch (err: any) {
+      setIsLoading(false);
+      const errorMessage = err.message || "Sign in failed. Please try again.";
+      setError(errorMessage);
     }
   };
+
+  // Redirect to analysis page after successful sign in
+  useEffect(() => {
+    if (step === "success" && session) {
+      setTimeout(() => {
+        router.push("/analysis");
+      }, 1000);
+    }
+  }, [step, session, router]);
 
   return (
     <div className={cn("flex w-[100%] flex-col min-h-screen bg-black relative", className)}>
@@ -413,7 +442,7 @@ export const SignInPage = ({ className }: SignInPageProps) => {
                     initial={{ opacity: 0, x: -100 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -100 }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    transition={{ duration: 0.3, ease: "easeOut" }}
                     className="space-y-6 text-center"
                   >
                     <div className="space-y-1">
@@ -435,13 +464,24 @@ export const SignInPage = ({ className }: SignInPageProps) => {
 
                       <form onSubmit={handleCredentialsSubmit}>
                         <div className="space-y-3">
+                          {error && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30"
+                            >
+                              <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                              <p className="text-sm text-red-400">{error}</p>
+                            </motion.div>
+                          )}
                           <div className="relative">
                             <input
                               type="email"
                               placeholder="your@email.com"
                               value={email}
                               onChange={(e) => setEmail(e.target.value)}
-                              className="w-full backdrop-blur-[1px] text-white border border-white/10 rounded-full py-3 px-4 focus:outline-none focus:border-white/30 text-center bg-white/5 placeholder:text-white/40"
+                              disabled={isLoading}
+                              className="w-full backdrop-blur-[1px] text-white border border-white/10 rounded-full py-3 px-4 focus:outline-none focus:border-white/30 text-center bg-white/5 placeholder:text-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
                               required
                             />
                           </div>
@@ -451,26 +491,43 @@ export const SignInPage = ({ className }: SignInPageProps) => {
                               placeholder="password"
                               value={password}
                               onChange={(e) => setPassword(e.target.value)}
-                              className="w-full backdrop-blur-[1px] text-white border border-white/10 rounded-full py-3 px-4 focus:outline-none focus:border-white/30 text-center bg-white/5 placeholder:text-white/40"
+                              disabled={isLoading}
+                              className="w-full backdrop-blur-[1px] text-white border border-white/10 rounded-full py-3 px-4 focus:outline-none focus:border-white/30 text-center bg-white/5 placeholder:text-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
                               required
                             />
                           </div>
                         </div>
-                        <button
+                        <motion.button
                           type="submit"
-                          disabled={!email || !password}
-                          className="absolute right-1.5 top-1.5 text-white w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors group overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={!email || !password || isLoading}
+                          whileHover={!isLoading ? { scale: 1.05 } : {}}
+                          whileTap={!isLoading ? { scale: 0.95 } : {}}
+                          className="w-full py-3 rounded-full font-semibold flex items-center justify-center gap-2 transition-all duration-300 bg-white text-black hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
                         >
-                          <span className="relative w-full h-full block overflow-hidden">
-                            <span className="absolute inset-0 flex items-center justify-center transition-transform duration-300 group-hover:translate-x-full">→</span>
-                            <span className="absolute inset-0 flex items-center justify-center transition-transform duration-300 -translate-x-full group-hover:translate-x-0">→</span>
-                          </span>
-                        </button>
+                          {isLoading ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Signing in...
+                            </>
+                          ) : (
+                            <>
+                              Sign In
+                              <ArrowRight className="w-5 h-5" />
+                            </>
+                          )}
+                        </motion.button>
+                        
+                        <p className="text-white/60 text-sm">
+                          Don't have an account?{" "}
+                          <Link href="/sign-up" className="text-white hover:underline font-semibold">
+                            Sign up
+                          </Link>
+                        </p>
                       </form>
                     </div>
 
                     <p className="text-xs text-white/40 pt-10">
-                      By signing up, you agree to our <Link href="#" className="underline text-white/60 hover:text-white/80">
+                      By signing in, you agree to our <Link href="#" className="underline text-white/60 hover:text-white/80">
                         Terms
                       </Link>
                     </p>
@@ -480,7 +537,7 @@ export const SignInPage = ({ className }: SignInPageProps) => {
                     key="success-step"
                     initial={{ opacity: 0, y: 50 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, ease: "easeOut", delay: 0.3 }}
+                    transition={{ duration: 0.3, ease: "easeOut", delay: 0.1 }}
                     className="space-y-6 text-center"
                   >
                     <div className="space-y-1">
@@ -522,3 +579,5 @@ export const SignInPage = ({ className }: SignInPageProps) => {
     </div>
   );
 };
+
+export { MiniNavbar };
