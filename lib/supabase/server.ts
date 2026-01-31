@@ -10,8 +10,20 @@ import { cookies } from 'next/headers'
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies()
   
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    // Return a lightweight stub client when env vars are missing so server-side
+    // code can safely run in environments without Supabase configured.
+    return {
+      auth: {
+        getSession: async () => ({ data: { session: null }, error: null }),
+        getUser: async () => ({ data: { user: null }, error: null }),
+      },
+      from: () => ({ select: async () => ({ data: null, error: null }) }),
+    } as any
+  }
 
   return createClient(supabaseUrl, supabaseAnonKey, {
     global: {
