@@ -21,9 +21,12 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password)
-      // Wait a moment for session to be set
+      // Wait for session to be established
       await new Promise(resolve => setTimeout(resolve, 500))
-      router.push('/')
+      // Refresh router to sync server state
+      router.refresh()
+      // Navigate to dashboard
+      router.push('/dashboard')
     } catch (err: any) {
       setError(err.message || 'Failed to sign in')
       setIsLoading(false)

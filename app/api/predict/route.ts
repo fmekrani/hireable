@@ -155,24 +155,4 @@ export async function POST(request: NextRequest): Promise<NextResponse<Predictio
     );
   }
 }
-    );
 
-    // Return prediction response
-    return NextResponse.json({
-      success: true,
-      data: {
-        readiness: Math.round(readinessScore * 100), // Convert to 0-100
-        matchedSkills: matched,
-        missingSkills: missing,
-        timeline,
-        recommendations,
-      },
-    });
-  } catch (error) {
-    console.error('Prediction API error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to process prediction request' },
-      { status: 500 }
-    );
-  }
-}

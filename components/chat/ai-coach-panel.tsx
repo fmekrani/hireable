@@ -206,7 +206,7 @@ export function AiCoachPanel({ isCollapsible = false, className }: AiCoachPanelP
       transition={{ duration: 0.5, delay: 0.2 }}
       className={cn(
         "flex flex-col bg-card/60 backdrop-blur-xl rounded-2xl border border-border shadow-2xl shadow-black/20 overflow-hidden",
-        isCollapsible ? "fixed bottom-6 right-6 z-40 w-96 max-w-[calc(100vw-3rem)] h-[500px]" : "h-full",
+        isCollapsible ? "fixed bottom-6 right-6 z-40 w-96 max-w-[calc(100vw-3rem)] h-[500px]" : "h-full relative",
         className
       )}
     >
@@ -232,7 +232,7 @@ export function AiCoachPanel({ isCollapsible = false, className }: AiCoachPanelP
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+      <div className="flex-1 relative overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         <AnimatePresence mode="popLayout">
           {messages.map((msg) => (
             <motion.div

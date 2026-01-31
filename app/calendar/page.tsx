@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Calendar, Plus } from 'lucide-react'
-import Navbar from '@/components/Navbar'
+import { FloatingHeader } from '@/components/ui/floating-header'
 import { Button } from '@/components/ui/button'
 
 export default function CalendarPage() {
@@ -36,7 +36,7 @@ export default function CalendarPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted">
-      <Navbar />
+      <FloatingHeader />
       
       <div className="pt-24 pb-16">
         <div className="max-w-4xl mx-auto px-6">
