@@ -3,9 +3,11 @@
 import { useRef, useEffect, useState, Suspense, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, CheckCircle, X } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import VaporizeTextCycle from "./vapour-text-effect";
+import { ProfileDropdown } from "./profile-dropdown";
 
 // Ethereal beam shader - creates flowing light beams
 const BeamMaterial = {
@@ -195,16 +197,64 @@ function Scene() {
 
 export function EtherealBeamsHero() {
   const [mounted, setMounted] = useState(false);
+  const [showVaporizer, setShowVaporizer] = useState(false);
+  const [hasShownVaporizer, setHasShownVaporizer] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const searchParams = useSearchParams();
 
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === "undefined") return;
+
     setMounted(true);
-  }, []);
+    
+    // Check for auth results from OAuth callback
+    const authParam = searchParams.get('auth');
+    const errorParam = searchParams.get('message');
+    
+    if (authParam === 'success') {
+      setShowSuccessModal(true);
+      // Auto-hide after 3 seconds
+      const timer = setTimeout(() => {
+        setShowSuccessModal(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    } else if (authParam === 'error') {
+      setErrorMessage(errorParam || 'Authentication failed. Please try again.');
+      setShowErrorModal(true);
+      // Auto-hide after 4 seconds
+      const timer = setTimeout(() => {
+        setShowErrorModal(false);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+    
+    // Check if user has seen the vaporizer before
+    const hasSeenVaporizer = sessionStorage.getItem("hireable_vaporizer_shown");
+    
+    if (!hasSeenVaporizer) {
+      setShowVaporizer(true);
+      setHasShownVaporizer(true);
+      // Mark that we've shown it in this session
+      sessionStorage.setItem("hireable_vaporizer_shown", "true");
+      
+      // After animation completes (2.5s vaporize + 1.5s fade), replace with static text
+      const animationDuration = (2.5 + 1.5) * 1000; // ~4 seconds
+      const hideTimer = setTimeout(() => {
+        setShowVaporizer(false);
+      }, animationDuration);
+      
+      return () => clearTimeout(hideTimer);
+    }
+  }, [searchParams]);
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-black">
       {/* Three.js Canvas Background */}
       {mounted && (
-        <div className="absolute inset-0 animate-fadeIn">
+        <div className="absolute inset-0">
           <Canvas
             camera={{ position: [0, 0, 5], fov: 60 }}
             dpr={[1, 2]}
@@ -218,11 +268,11 @@ export function EtherealBeamsHero() {
       )}
 
       {/* Gradient overlays for depth */}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/20 to-black/60 pointer-events-none animate-fadeIn" />
-      <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-transparent to-black/30 pointer-events-none animate-fadeIn" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/20 to-black/60 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-transparent to-black/30 pointer-events-none" />
 
       {/* Content */}
-      <div className="relative z-10 flex flex-col min-h-screen animate-fadeIn">
+      <div className="relative z-10 flex flex-col min-h-screen">
         {/* Navigation */}
         <nav className="flex items-center justify-between px-6 py-5 md:px-12">
           <div className="flex items-center gap-2">
@@ -234,38 +284,39 @@ export function EtherealBeamsHero() {
             </span>
           </div>
 
-          <Link
-            href="/sign-in"
-            className="px-4 py-2 rounded-full bg-white text-black text-sm font-medium hover:bg-white/90 transition-colors"
-          >
-            Sign in
-          </Link>
+          <ProfileDropdown />
         </nav>
 
         {/* Hero Content */}
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-4xl mx-auto">
             {/* Vaporize Text Effect */}
-            <div className="mb-12 h-40 flex items-center justify-center animate-fadeIn">
-              <VaporizeTextCycle
-                texts={["hireable.ai"]}
-                font={{
-                  fontFamily: "Inter, sans-serif",
-                  fontSize: "80px",
-                  fontWeight: 700,
-                }}
-                color="rgb(255, 255, 255)"
-                spread={5}
-                density={5}
-                animation={{
-                  vaporizeDuration: 2.5,
-                  fadeInDuration: 1.5,
-                  waitDuration: 1,
-                }}
-                direction="left-to-right"
-                alignment="center"
-              />
-            </div>
+            {showVaporizer ? (
+              <div className="mb-12 h-40 flex items-center justify-center">
+                <VaporizeTextCycle
+                  texts={["hireable.ai"]}
+                  font={{
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: "80px",
+                    fontWeight: 700,
+                  }}
+                  color="rgb(255, 255, 255)"
+                  spread={5}
+                  density={5}
+                  animation={{
+                    vaporizeDuration: 2.5,
+                    fadeInDuration: 1.5,
+                    waitDuration: 0,
+                  }}
+                  direction="left-to-right"
+                  alignment="center"
+                />
+              </div>
+            ) : (
+              <div className="mb-12 h-40 flex items-center justify-center">
+                <h2 className="text-6xl md:text-7xl font-bold text-white">hireable.ai</h2>
+              </div>
+            )}
 
             {/* Badge */}
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm mb-8">
@@ -289,7 +340,7 @@ export function EtherealBeamsHero() {
             {/* Subtitle */}
             <p className="text-lg md:text-xl text-white/50 max-w-2xl mx-auto mb-12 leading-relaxed">
               Paste a job link, upload your resume, get a skill gap map,
-              timeline, and mock interview prep. Land your dream role faster.
+              timeline, and AI interviewer prep. Land your dream role faster.
             </p>
 
             {/* CTA Buttons */}
@@ -305,7 +356,7 @@ export function EtherealBeamsHero() {
                 href="/interview"
                 className="flex items-center gap-2 px-8 py-4 rounded-full bg-white/5 text-white border border-white/10 backdrop-blur-sm hover:bg-white/10 transition-colors"
               >
-                Mock interview
+                AI interviewer
               </Link>
             </div>
           </div>
@@ -314,6 +365,63 @@ export function EtherealBeamsHero() {
         {/* Bottom gradient fade */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black to-transparent pointer-events-none" />
       </div>
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-8 max-w-sm mx-4 text-center">
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => setShowSuccessModal(false)}
+                className="text-white/60 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex justify-center mb-4">
+              <CheckCircle className="w-12 h-12 text-green-400" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Welcome to hireable!</h2>
+            <p className="text-white/70 mb-6">You've successfully signed in. Let's get started on your job prep journey.</p>
+            <Link
+              href="/analysis"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white text-black font-medium hover:bg-white/90 transition-colors"
+            >
+              Go to Analysis
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {showErrorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-8 max-w-sm mx-4 text-center">
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => setShowErrorModal(false)}
+                className="text-white/60 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex justify-center mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center">
+                <X className="w-6 h-6 text-red-400" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Authentication Failed</h2>
+            <p className="text-white/70 mb-6">{errorMessage}</p>
+            <Link
+              href="/sign-in"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white text-black font-medium hover:bg-white/90 transition-colors"
+            >
+              Try Again
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

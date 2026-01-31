@@ -3,9 +3,12 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/supabase/auth-context";
 import { cn } from "@/lib/utils";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { Check, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 
 type Uniforms = {
   [key: string]: {
@@ -363,66 +366,63 @@ function MiniNavbar() {
 
 export const SignInPage = ({ className }: SignInPageProps) => {
   const [email, setEmail] = useState("");
-  const [step, setStep] = useState<"email" | "code" | "success">("email");
-  const [code, setCode] = useState(["", "", "", "", "", ""]);
-  const codeInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [password, setPassword] = useState("")
+  const [step, setStep] = useState<"credentials" | "success">("credentials")
   const [initialCanvasVisible, setInitialCanvasVisible] = useState(true);
   const [reverseCanvasVisible, setReverseCanvasVisible] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const { signIn, signInWithOAuth, session } = useAuth();
+  const router = useRouter();
 
-  const handleEmailSubmit = (e: React.FormEvent) => {
+  const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email) {
-      setStep("code");
-    }
-  };
+    if (!email || !password) return;
 
-  useEffect(() => {
-    if (step === "code") {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      // Call Supabase authentication
+      await signIn(email, password);
+      
+      // Show success animation
+      setReverseCanvasVisible(true);
       setTimeout(() => {
-        codeInputRefs.current[0]?.focus();
-      }, 500);
-    }
-  }, [step]);
-
-  const handleCodeChange = (index: number, value: string) => {
-    if (value.length <= 1) {
-      const newCode = [...code];
-      newCode[index] = value;
-      setCode(newCode);
-
-      if (value && index < 5) {
-        codeInputRefs.current[index + 1]?.focus();
-      }
-
-      if (index === 5 && value) {
-        const isComplete = newCode.every((digit) => digit.length === 1);
-        if (isComplete) {
-          setReverseCanvasVisible(true);
-
-          setTimeout(() => {
-            setInitialCanvasVisible(false);
-          }, 50);
-
-          setTimeout(() => {
-            setStep("success");
-          }, 2000);
-        }
-      }
+        setInitialCanvasVisible(false);
+      }, 20);
+      setTimeout(() => {
+        setStep("success");
+      }, 1200);
+    } catch (err: any) {
+      setIsLoading(false);
+      const errorMessage = err.message || "Sign in failed. Please try again.";
+      setError(errorMessage);
     }
   };
 
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !code[index] && index > 0) {
-      codeInputRefs.current[index - 1]?.focus();
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      await signInWithOAuth("google");
+      // Redirect will happen automatically via callback
+    } catch (err: any) {
+      setIsLoading(false);
+      const errorMessage = err.message || "Google sign in failed. Please try again.";
+      setError(errorMessage);
     }
   };
 
-  const handleBackClick = () => {
-    setStep("email");
-    setCode(["", "", "", "", "", ""]);
-    setReverseCanvasVisible(false);
-    setInitialCanvasVisible(true);
-  };
+  // Redirect to analysis page after successful sign in
+  useEffect(() => {
+    if (step === "success" && session) {
+      setTimeout(() => {
+        router.push("/analysis");
+      }, 1000);
+    }
+  }, [step, session, router]);
 
   return (
     <div className={cn("flex w-[100%] flex-col min-h-screen bg-black relative", className)}>
@@ -450,13 +450,13 @@ export const SignInPage = ({ className }: SignInPageProps) => {
           <div className="flex-1 flex flex-col justify-center items-center">
             <div className="w-full mt-[150px] max-w-sm px-6">
               <AnimatePresence mode="wait">
-                {step === "email" ? (
+                {step === "credentials" ? (
                   <motion.div
                     key="email-step"
                     initial={{ opacity: 0, x: -100 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -100 }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    transition={{ duration: 0.3, ease: "easeOut" }}
                     className="space-y-6 text-center"
                   >
                     <div className="space-y-1">
@@ -465,9 +465,22 @@ export const SignInPage = ({ className }: SignInPageProps) => {
                     </div>
 
                     <div className="space-y-4">
-                      <button className="backdrop-blur-[2px] w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full py-3 px-4 transition-colors">
-                        <span className="text-lg">G</span>
-                        <span>Sign in with Google</span>
+                      <button 
+                        onClick={handleGoogleSignIn}
+                        disabled={isLoading}
+                        className="backdrop-blur-[2px] w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-white border border-white/10 rounded-full py-3 px-4 transition-colors"
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Signing in...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-lg">G</span>
+                            <span>Sign in with Google</span>
+                          </>
+                        )}
                       </button>
 
                       <div className="flex items-center gap-4">
@@ -476,113 +489,82 @@ export const SignInPage = ({ className }: SignInPageProps) => {
                         <div className="h-px bg-white/10 flex-1" />
                       </div>
 
-                      <form onSubmit={handleEmailSubmit}>
-                        <div className="relative">
-                          <input
-                            type="email"
-                            placeholder="your@email.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="w-full backdrop-blur-[1px] text-white border border-white/10 rounded-full py-3 px-4 focus:outline-none focus:border-white/30 text-center bg-white/5 placeholder:text-white/40"
-                            required
-                          />
-                          <button
-                            type="submit"
-                            className="absolute right-1.5 top-1.5 text-white w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors group overflow-hidden"
-                          >
-                            <span className="relative w-full h-full block overflow-hidden">
-                              <span className="absolute inset-0 flex items-center justify-center transition-transform duration-300 group-hover:translate-x-full">→</span>
-                              <span className="absolute inset-0 flex items-center justify-center transition-transform duration-300 -translate-x-full group-hover:translate-x-0">→</span>
-                            </span>
-                          </button>
+                      <form onSubmit={handleCredentialsSubmit}>
+                        <div className="space-y-3">
+                          {error && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30"
+                            >
+                              <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                              <p className="text-sm text-red-400">{error}</p>
+                            </motion.div>
+                          )}
+                          <div className="relative">
+                            <input
+                              type="email"
+                              placeholder="your@email.com"
+                              value={email}
+                              onChange={(e) => setEmail(e.target.value)}
+                              disabled={isLoading}
+                              className="w-full backdrop-blur-[1px] text-white border border-white/10 rounded-full py-3 px-4 focus:outline-none focus:border-white/30 text-center bg-white/5 placeholder:text-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                              required
+                            />
+                          </div>
+                          <div className="relative">
+                            <input
+                              type="password"
+                              placeholder="password"
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              disabled={isLoading}
+                              className="w-full backdrop-blur-[1px] text-white border border-white/10 rounded-full py-3 px-4 focus:outline-none focus:border-white/30 text-center bg-white/5 placeholder:text-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                              required
+                            />
+                          </div>
                         </div>
+                        <motion.button
+                          type="submit"
+                          disabled={!email || !password || isLoading}
+                          whileHover={!isLoading ? { scale: 1.05 } : {}}
+                          whileTap={!isLoading ? { scale: 0.95 } : {}}
+                          className="w-full py-3 rounded-full font-semibold flex items-center justify-center gap-2 transition-all duration-300 bg-white text-black hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+                        >
+                          {isLoading ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Signing in...
+                            </>
+                          ) : (
+                            <>
+                              Sign In
+                              <ArrowRight className="w-5 h-5" />
+                            </>
+                          )}
+                        </motion.button>
+                        
+                        <p className="text-white/60 text-sm">
+                          Don't have an account?{" "}
+                          <Link href="/sign-up" className="text-white hover:underline font-semibold">
+                            Sign up
+                          </Link>
+                        </p>
                       </form>
                     </div>
 
                     <p className="text-xs text-white/40 pt-10">
-                      By signing up, you agree to our <Link href="#" className="underline text-white/60 hover:text-white/80">
+                      By signing in, you agree to our <Link href="#" className="underline text-white/60 hover:text-white/80">
                         Terms
                       </Link>
                     </p>
                   </motion.div>
-                ) : step === "code" ? (
-                  <motion.div
-                    key="code-step"
-                    initial={{ opacity: 0, x: 100 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 100 }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
-                    className="space-y-6 text-center"
-                  >
-                    <div className="space-y-1">
-                      <h1 className="text-[2.5rem] font-bold leading-[1.1] tracking-tight text-white">Enter verification code</h1>
-                      <p className="text-[1.25rem] text-white/50 font-light">Check your email</p>
-                    </div>
-
-                    <div className="w-full">
-                      <div className="relative rounded-full py-4 px-5 border border-white/10 bg-white/5">
-                        <div className="flex items-center justify-center">
-                          {code.map((digit, i) => (
-                            <div key={i} className="flex items-center">
-                              <div className="relative">
-                                <input
-                                  ref={(el) => {
-                                    codeInputRefs.current[i] = el;
-                                  }}
-                                  type="text"
-                                  inputMode="numeric"
-                                  pattern="[0-9]*"
-                                  maxLength={1}
-                                  value={digit}
-                                  onChange={(e) => handleCodeChange(i, e.target.value)}
-                                  onKeyDown={(e) => handleKeyDown(i, e)}
-                                  className="w-8 text-center text-xl bg-transparent text-white border-none focus:outline-none focus:ring-0 appearance-none"
-                                  style={{ caretColor: "transparent" }}
-                                />
-                                {!digit && <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center pointer-events-none"><span className="text-xl text-white/30">0</span></div>}
-                              </div>
-                              {i < 5 && <span className="text-white/20 text-xl">|</span>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <motion.p className="text-white/50 hover:text-white/70 transition-colors cursor-pointer text-sm" whileHover={{ scale: 1.02 }} transition={{ duration: 0.2 }}>
-                        Resend code
-                      </motion.p>
-                    </div>
-
-                    <div className="flex w-full gap-3">
-                      <motion.button
-                        onClick={handleBackClick}
-                        className="rounded-full bg-white text-black font-medium px-8 py-3 hover:bg-white/90 transition-colors w-[30%]"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        Back
-                      </motion.button>
-                      <motion.button className={`flex-1 rounded-full font-medium py-3 border transition-all duration-300 ${code.every((d) => d !== "") ? "bg-white text-black border-transparent hover:bg-white/90 cursor-pointer" : "bg-white/5 text-white/50 border-white/10 cursor-not-allowed"}`} disabled={!code.every((d) => d !== "")}>
-                        Continue
-                      </motion.button>
-                    </div>
-
-                    <div className="pt-16">
-                      <p className="text-xs text-white/40">
-                        Need help? <Link href="#" className="underline text-white/60">
-                          Contact support
-                        </Link>
-                      </p>
-                    </div>
-                  </motion.div>
-                ) : (
+                  ) : (
                   <motion.div
                     key="success-step"
                     initial={{ opacity: 0, y: 50 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, ease: "easeOut", delay: 0.3 }}
+                    transition={{ duration: 0.3, ease: "easeOut", delay: 0.1 }}
                     className="space-y-6 text-center"
                   >
                     <div className="space-y-1">
@@ -624,3 +606,5 @@ export const SignInPage = ({ className }: SignInPageProps) => {
     </div>
   );
 };
+
+export { MiniNavbar };

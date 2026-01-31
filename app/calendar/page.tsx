@@ -2,14 +2,14 @@
 
 import { motion } from 'framer-motion'
 import { LimelightNav } from '@/components/ui/limelight-nav-new'
-import { Calendar, Home, BarChart3, Video, User, Sparkles, ArrowRight, Clock, CheckCircle, AlertCircle, BookOpen } from 'lucide-react'
+import { ProfileDropdown } from '@/components/ui/profile-dropdown'
+import { Calendar, Home, BarChart3, Video, Sparkles, ArrowRight, Clock, CheckCircle, AlertCircle, BookOpen } from 'lucide-react'
 
 const navItems = [
   { id: "home", icon: <Home />, label: "Home", href: "/" },
   { id: "analysis", icon: <BarChart3 />, label: "Analysis", href: "/analysis" },
   { id: "interview", icon: <Video />, label: "Interview", href: "/interview" },
   { id: "calendar", icon: <Calendar />, label: "Calendar", href: "/calendar" },
-  { id: "profile", icon: <User />, label: "Profile", href: "/profile" },
 ]
 
 const upcomingEvents = [
@@ -29,8 +29,9 @@ export default function CalendarPage() {
     <div className="min-h-screen bg-gradient-to-br from-black via-black to-black/80 text-white overflow-x-hidden">
       {/* Top Navigation */}
       <div className="fixed top-0 left-0 right-0 z-40 bg-black/40 backdrop-blur-2xl border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-center">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <LimelightNav items={navItems} />
+          <ProfileDropdown />
         </div>
       </div>
 
