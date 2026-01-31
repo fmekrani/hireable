@@ -24,56 +24,101 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Check session on mount
   useEffect(() => {
-    const getSession = async () => {
+    let isMounted = true
+
+    const initializeAuth = async () => {
       try {
+        // Get initial session
         const {
-          data: { session },
+          data: { session: initialSession },
         } = await supabase.auth.getSession()
-        setSession(session)
 
-        if (session?.user) {
-          // Fetch user profile
-          const { data } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
+        if (!isMounted) return
 
-          setUser(data)
+        setSession(initialSession)
+
+        // Fetch user profile if session exists
+        if (initialSession?.user?.id) {
+          try {
+            const { data: userData, error } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', initialSession.user.id)
+              .maybeSingle()
+
+            if (isMounted) {
+              if (!error && userData) {
+                setUser(userData)
+              } else if (error) {
+                // Log error for debugging
+                console.error('[Auth] Query error fetching user profile:', {
+                  code: error.code,
+                  message: error.message,
+                  userId: initialSession.user.id,
+                })
+              }
+              // userData can be null if user profile doesn't exist yet - that's OK
+            }
+          } catch (err) {
+            console.error('[Auth] Exception fetching user profile:', err)
+          }
         }
       } catch (error) {
-        console.error('Error getting session:', error)
+        console.error('Error initializing auth:', error)
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+        }
       }
     }
 
-    getSession()
+    initializeAuth()
 
     // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setSession(session)
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, currentSession) => {
+        if (!isMounted) return
 
-      if (session?.user) {
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
+        setSession(currentSession)
 
-        setUser(data)
-      } else {
-        setUser(null)
+        if (event === 'SIGNED_OUT') {
+          setUser(null)
+        } else if (currentSession?.user?.id) {
+          try {
+            const { data: userData, error } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', currentSession.user.id)
+              .maybeSingle()
+
+            if (isMounted) {
+              if (!error && userData) {
+                setUser(userData)
+              } else if (error) {
+                console.error('[Auth] Query error on auth state change:', {
+                  code: error.code,
+                  message: error.message,
+                  event,
+                  userId: currentSession.user.id,
+                })
+              }
+              // userData can be null if user profile doesn't exist yet - that's OK
+            }
+          } catch (error) {
+            console.error('[Auth] Exception on auth state change:', error)
+          }
+        }
       }
-    })
+    )
 
-    return () => subscription?.unsubscribe()
+    return () => {
+      isMounted = false
+      authListener?.subscription.unsubscribe()
+    }
   }, [])
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { error: signUpError, data } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -83,14 +128,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     })
 
-    if (error) throw error
+    if (signUpError) throw signUpError
 
-    // Create user profile
-    await supabase.from('users').insert({
-      id: (await supabase.auth.getUser()).data.user?.id,
-      email,
-      full_name: fullName,
-    })
+    const userId = data.user?.id
+    if (!userId) {
+      throw new Error('Failed to get user ID after signup')
+    }
+
+    // Create user profile (fallback if trigger doesn't fire immediately)
+    try {
+      await supabase
+        .from('users')
+        .insert({
+          id: userId,
+          email,
+          full_name: fullName,
+        })
+        .select()
+
+      // Success - profile was created or already exists from trigger
+    } catch (err: any) {
+      // Ignore duplicate key errors (profile already created by trigger)
+      if (err?.code !== 'PGRST103' && err?.message?.includes('duplicate')) {
+        console.warn('[Auth] Profile creation note:', err?.message)
+      }
+      // Don't throw - the trigger may have created it
+    }
   }
 
   const signIn = async (email: string, password: string) => {

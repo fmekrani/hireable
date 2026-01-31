@@ -17,6 +17,7 @@ import { FloatingHeader } from '@/components/ui/floating-header'
 import { CinematicHero } from '@/components/ui/cinematic-hero'
 import { GlassCard } from '@/components/ui/glass-card'
 import { FloatingOrbs } from '@/components/ui/mouse-glow'
+import { useAuth } from '@/lib/supabase/auth-context'
 
 // Feature data
 const features = [
@@ -53,6 +54,8 @@ const stats = [
 ]
 
 export default function Home() {
+  const { session, user } = useAuth()
+
   return (
     <IntroOverlay>
       <div className="min-h-screen bg-black text-white overflow-x-hidden">
@@ -61,24 +64,6 @@ export default function Home() {
         
         {/* Floating header */}
         <FloatingHeader />
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from '@/lib/supabase/auth-context'
-import Sidebar from '@/components/Sidebar'
-import TopBar from '@/components/TopBar'
-import JobForm from '@/components/JobForm'
-import ResultsCards from '@/components/ResultsCards'
-import ChatWidget from '@/components/ChatWidget'
-import { mockJobs, mockResults, JobResult } from '@/lib/mockData'
-import { LogOut } from 'lucide-react'
-
-export default function Home() {
-  const router = useRouter()
-  const { user, session, signOut } = useAuth()
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [results, setResults] = useState<JobResult | null>(null)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [isSigningOut, setIsSigningOut] = useState(false)
 
         {/* Hero Section with Background Paths */}
         <BackgroundPaths>
@@ -192,46 +177,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-  const handleSignOut = async () => {
-    setIsSigningOut(true)
-    try {
-      await signOut()
-      router.push('/auth/login')
-    } catch (error) {
-      console.error('Sign out error:', error)
-      setIsSigningOut(false)
-    }
-  }
-
-  return (
-    <div className="flex h-screen flex-col">
-      {/* Signed in banner */}
-      {session && user && (
-        <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 py-3 shadow-lg z-50 flex items-center justify-between">
-          <span className="font-semibold">✅ Signed in as {user.full_name || user.email}</span>
-          <button
-            onClick={handleSignOut}
-            disabled={isSigningOut}
-            className="flex items-center gap-2 px-4 py-1 bg-white/20 hover:bg-white/30 rounded-lg transition text-sm disabled:opacity-50"
-          >
-            <LogOut className="w-4 h-4" />
-            {isSigningOut ? 'Signing Out...' : 'Sign Out'}
-          </button>
-        </div>
-      )}
-
-      <div className="flex flex-1">
-        {/* Sidebar */}
-        <Sidebar
-          jobs={mockJobs}
-          selectedJobId={selectedJobId}
-          onSelectJob={handleSelectJob}
-        />
-
-        {/* Main content */}
-        <main className="flex-1 md:ml-0 ml-0 overflow-auto">
-        {/* Top bar */}
-        <TopBar />
 
         {/* Stats Section */}
         <section className="relative py-20 px-6">
@@ -285,21 +230,50 @@ export default function Home() {
               </p>
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Link href="/analysis">
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="group relative px-8 py-4 rounded-xl font-semibold text-white"
-                  >
-                    <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-violet-600 rounded-xl opacity-70 blur-lg group-hover:opacity-100 transition-all" />
-                    <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl" />
-                    <span className="relative flex items-center gap-2">
-                      <Zap className="w-5 h-5" />
-                      Start Free Analysis
-                      <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    </span>
-                  </motion.button>
-                </Link>
+                {session ? (
+                  <Link href="/dashboard">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="group relative px-8 py-4 rounded-xl font-semibold text-white"
+                    >
+                      <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-violet-600 rounded-xl opacity-70 blur-lg group-hover:opacity-100 transition-all" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl" />
+                      <span className="relative flex items-center gap-2">
+                        <Zap className="w-5 h-5" />
+                        Go to Dashboard
+                        <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                      </span>
+                    </motion.button>
+                  </Link>
+                ) : (
+                  <>
+                    <Link href="/auth/login">
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="group relative px-8 py-4 rounded-xl font-semibold text-white"
+                      >
+                        <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-violet-600 rounded-xl opacity-70 blur-lg group-hover:opacity-100 transition-all" />
+                        <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl" />
+                        <span className="relative flex items-center gap-2">
+                          <Zap className="w-5 h-5" />
+                          Start Free Analysis
+                          <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                        </span>
+                      </motion.button>
+                    </Link>
+                    <Link href="/auth/signup">
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="px-8 py-4 rounded-xl font-semibold text-white border border-white/20 hover:border-white/40 transition-colors"
+                      >
+                        Sign Up
+                      </motion.button>
+                    </Link>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
@@ -328,7 +302,6 @@ export default function Home() {
         </footer>
       </div>
     </IntroOverlay>
-      </div>
-    </div>
   )
 }
+

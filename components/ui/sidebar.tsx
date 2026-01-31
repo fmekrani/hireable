@@ -221,7 +221,7 @@ export function Sidebar({ analyses, selectedId, onSelect, className }: SidebarPr
       )}
 
       {/* Collapsible groups */}
-      <div className="flex-1 overflow-y-auto py-2 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+      <div className="flex-1 relative overflow-y-auto py-2 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         <CollapsibleGroup
           title="This Week"
           items={grouped.thisWeek}

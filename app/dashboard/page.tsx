@@ -36,26 +36,6 @@ export default function DashboardPage() {
     )
   }
 
-  const loadAnalyses = async () => {
-    if (!user?.id) return
-
-    try {
-      const { data, error } = await supabase
-        .from('analysis_runs')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      if (error) throw error
-      setAnalyses(data || [])
-    } catch (error) {
-      console.error('Error loading analyses:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const handleSignOut = async () => {
     setIsSigningOut(true)
     try {

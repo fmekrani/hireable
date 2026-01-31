@@ -69,7 +69,7 @@ export function RecentAnalysesSidebar({ className }: RecentAnalysesSidebarProps)
       </div>
 
       {/* Recent Analyses List */}
-      <div className="flex-1 overflow-y-auto p-2 scroll-smooth">
+      <div className="flex-1 relative overflow-y-auto p-2 scroll-smooth">
         <div className="space-y-1">
           {recentAnalyses.map((analysis) => (
             <motion.button
