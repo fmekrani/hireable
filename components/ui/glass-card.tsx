@@ -3,6 +3,7 @@
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion"
 import { useRef, useState } from "react"
 import { cn } from "@/lib/utils"
+import type { LucideIcon } from "lucide-react"
 
 interface GlassCardProps {
   children: React.ReactNode
@@ -99,7 +100,7 @@ export function GlassCard({ children, className, glowColor = "violet", delay = 0
 
 // Feature card with icon
 interface FeatureCardProps {
-  icon: React.ElementType
+  icon: LucideIcon
   title: string
   description: string
   href?: string

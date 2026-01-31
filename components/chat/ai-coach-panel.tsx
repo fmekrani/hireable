@@ -13,7 +13,8 @@ import {
   CalendarDays,
   FileEdit,
   Bot,
-  User
+  User,
+  LucideIcon
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -26,7 +27,7 @@ interface Message {
 }
 
 interface SuggestedPrompt {
-  icon: React.ElementType
+  icon: LucideIcon
   label: string
   prompt: string
 }
@@ -310,16 +311,19 @@ export function AiCoachPanel({ isCollapsible = false, className }: AiCoachPanelP
         <div className="px-4 pb-2">
           <p className="text-xs text-muted-foreground mb-2">Suggested questions:</p>
           <div className="flex flex-wrap gap-2">
-            {suggestedPrompts.map((prompt) => (
-              <button
-                key={prompt.label}
-                onClick={() => handlePromptClick(prompt)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-muted hover:bg-muted/80 border border-border rounded-full text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <prompt.icon className="w-3 h-3" />
-                {prompt.label}
-              </button>
-            ))}
+            {suggestedPrompts.map((prompt) => {
+              const IconComponent = prompt.icon
+              return (
+                <button
+                  key={prompt.label}
+                  onClick={() => handlePromptClick(prompt)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-muted hover:bg-muted/80 border border-border rounded-full text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <IconComponent className="w-3 h-3" />
+                  {prompt.label}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
