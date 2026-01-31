@@ -372,7 +372,7 @@ export const SignInPage = ({ className }: SignInPageProps) => {
   const [reverseCanvasVisible, setReverseCanvasVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn, session } = useAuth();
+  const { signIn, signInWithOAuth, session } = useAuth();
   const router = useRouter();
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
@@ -397,6 +397,20 @@ export const SignInPage = ({ className }: SignInPageProps) => {
     } catch (err: any) {
       setIsLoading(false);
       const errorMessage = err.message || "Sign in failed. Please try again.";
+      setError(errorMessage);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      await signInWithOAuth("google");
+      // Redirect will happen automatically via callback
+    } catch (err: any) {
+      setIsLoading(false);
+      const errorMessage = err.message || "Google sign in failed. Please try again.";
       setError(errorMessage);
     }
   };
@@ -451,9 +465,22 @@ export const SignInPage = ({ className }: SignInPageProps) => {
                     </div>
 
                     <div className="space-y-4">
-                      <button className="backdrop-blur-[2px] w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full py-3 px-4 transition-colors">
-                        <span className="text-lg">G</span>
-                        <span>Sign in with Google</span>
+                      <button 
+                        onClick={handleGoogleSignIn}
+                        disabled={isLoading}
+                        className="backdrop-blur-[2px] w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-white border border-white/10 rounded-full py-3 px-4 transition-colors"
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Signing in...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-lg">G</span>
+                            <span>Sign in with Google</span>
+                          </>
+                        )}
                       </button>
 
                       <div className="flex items-center gap-4">

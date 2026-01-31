@@ -25,7 +25,7 @@ export const SignUpPage = ({ className }: SignUpPageProps) => {
   const [reverseCanvasVisible, setReverseCanvasVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { signUp, session } = useAuth();
+  const { signUp, signInWithOAuth, session } = useAuth();
   const router = useRouter();
 
   const handleSignUpSubmit = async (e: React.FormEvent) => {
@@ -63,6 +63,20 @@ export const SignUpPage = ({ className }: SignUpPageProps) => {
     } catch (err: any) {
       setIsLoading(false);
       const errorMessage = err.message || "Sign up failed. Please try again.";
+      setError(errorMessage);
+    }
+  };
+
+  const handleGoogleSignUp = async () => {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      await signInWithOAuth("google");
+      // Redirect will happen automatically via callback
+    } catch (err: any) {
+      setIsLoading(false);
+      const errorMessage = err.message || "Google sign up failed. Please try again.";
       setError(errorMessage);
     }
   };
@@ -117,6 +131,30 @@ export const SignUpPage = ({ className }: SignUpPageProps) => {
                     </div>
 
                     <div className="space-y-4">
+                      <button 
+                        onClick={handleGoogleSignUp}
+                        disabled={isLoading}
+                        className="backdrop-blur-[2px] w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-white border border-white/10 rounded-full py-3 px-4 transition-colors"
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Signing up...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-lg">G</span>
+                            <span>Sign up with Google</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="flex items-center gap-4">
+                        <div className="h-px bg-white/10 flex-1" />
+                        <span className="text-white/40 text-sm">or</span>
+                        <div className="h-px bg-white/10 flex-1" />
+                      </div>
+
                       <form onSubmit={handleSignUpSubmit} className="space-y-4">
                         {error && (
                           <motion.div

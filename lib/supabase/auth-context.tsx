@@ -79,21 +79,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, currentSession) => {
         if (!isMounted) return
 
+        console.log('[Auth Context] Auth state changed:', event, 'user:', currentSession?.user?.id)
         setSession(currentSession)
 
         if (event === 'SIGNED_OUT') {
           setUser(null)
         } else if (currentSession?.user?.id) {
           try {
+            console.log('[Auth Context] Fetching user profile for:', currentSession.user.id)
             const { data: userData, error } = await supabase
               .from('users')
               .select('*')
               .eq('id', currentSession.user.id)
               .maybeSingle()
 
+            console.log('[Auth Context] User fetch result - error:', error?.message, 'userData:', !!userData)
+
             if (isMounted) {
               if (!error && userData) {
+                console.log('[Auth Context] User profile found:', userData.full_name)
                 setUser(userData)
+              } else if (!userData && !error) {
+                // User profile doesn't exist - create it (for OAuth users)
+                try {
+                  console.log('[Auth Context] Creating user profile for OAuth user')
+                  const fullName = currentSession.user.user_metadata?.full_name || 'User'
+                  console.log('[Auth Context] Using full_name:', fullName)
+                  
+                  const { data: newUser, error: insertError } = await supabase
+                    .from('users')
+                    .insert({
+                      id: currentSession.user.id,
+                      email: currentSession.user.email,
+                      full_name: fullName,
+                    })
+                    .select()
+                    .single()
+
+                  console.log('[Auth Context] Profile creation result - error:', insertError?.message, 'newUser:', !!newUser)
+
+                  if (isMounted) {
+                    if (newUser && !insertError) {
+                      console.log('[Auth Context] Profile created successfully:', newUser.full_name)
+                      setUser(newUser)
+                    } else if (insertError) {
+                      console.warn('[Auth] Error creating user profile:', insertError?.message)
+                    }
+                  }
+                } catch (insertErr) {
+                  console.warn('[Auth] Exception creating user profile:', insertErr)
+                }
               } else if (error) {
                 console.error('[Auth] Query error on auth state change:', {
                   code: error.code,
@@ -102,7 +137,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   userId: currentSession.user.id,
                 })
               }
-              // userData can be null if user profile doesn't exist yet - that's OK
             }
           } catch (error) {
             console.error('[Auth] Exception on auth state change:', error)
