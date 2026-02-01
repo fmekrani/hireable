@@ -25,7 +25,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Check session on mount
   useEffect(() => {
     let isMounted = true
-    const abortController = new AbortController()
 
     const initializeAuth = async () => {
       try {
@@ -34,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: { session: initialSession },
         } = await supabase.auth.getSession()
 
-        if (!isMounted || abortController.signal.aborted) return
+        if (!isMounted) return
 
         setSession(initialSession)
 
@@ -47,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .eq('id', initialSession.user.id)
               .maybeSingle()
 
-            if (isMounted && !abortController.signal.aborted) {
+            if (isMounted) {
               if (!error && userData) {
                 setUser(userData)
               } else if (error) {
@@ -61,17 +60,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // userData can be null if user profile doesn't exist yet - that's OK
             }
           } catch (err) {
-            if (isMounted && !abortController.signal.aborted) {
+            if (isMounted) {
               console.error('[Auth] Exception fetching user profile:', err)
             }
           }
         }
       } catch (error) {
-        if (isMounted && !abortController.signal.aborted) {
+        if (isMounted) {
           console.error('Error initializing auth:', error)
         }
       } finally {
-        if (isMounted && !abortController.signal.aborted) {
+        if (isMounted) {
           setLoading(false)
         }
       }
@@ -82,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        if (!isMounted || abortController.signal.aborted) return
+        if (!isMounted) return
 
         console.log('[Auth Context] Auth state changed:', event, 'user:', currentSession?.user?.id)
         setSession(currentSession)
@@ -92,75 +91,85 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else if (currentSession?.user?.id) {
           try {
             console.log('[Auth Context] Fetching user profile for:', currentSession.user.id)
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 5000) // 5s timeout
             
             const { data: userData, error } = await supabase
               .from('users')
               .select('*')
               .eq('id', currentSession.user.id)
               .maybeSingle()
-            
-            clearTimeout(timeoutId)
-
-            if (!isMounted || abortController.signal.aborted) return
 
             console.log('[Auth Context] User fetch result - error:', error?.message, 'userData:', !!userData)
 
-            if (isMounted && !abortController.signal.aborted) {
+            if (isMounted) {
               if (!error && userData) {
                 console.log('[Auth Context] User profile found:', userData.full_name)
                 setUser(userData)
               } else if (!userData && !error) {
-                // User profile doesn't exist - create it (for OAuth users)
+                // User profile doesn't exist - create it
                 try {
-                  console.log('[Auth Context] Creating user profile for OAuth user')
-                  const fullName = currentSession.user.user_metadata?.full_name || 'User'
+                  console.log('[Auth Context] Creating user profile for new user')
+                  const fullName = currentSession.user.user_metadata?.full_name || currentSession.user.email || 'User'
                   console.log('[Auth Context] Using full_name:', fullName)
                   
+                  // Create user profile or get existing one
                   const { data: newUser, error: insertError } = await supabase
                     .from('users')
-                    .insert({
-                      id: currentSession.user.id,
-                      email: currentSession.user.email,
-                      full_name: fullName,
-                    })
+                    .upsert(
+                      {
+                        id: currentSession.user.id,
+                        email: currentSession.user.email,
+                        full_name: fullName,
+                      },
+                      { onConflict: 'id' }
+                    )
                     .select()
                     .single()
 
-                  if (!isMounted || abortController.signal.aborted) return
-
                   console.log('[Auth Context] Profile creation result - error:', insertError?.message, 'newUser:', !!newUser)
 
-                  if (isMounted && !abortController.signal.aborted) {
+                  if (isMounted) {
                     if (newUser && !insertError) {
-                      console.log('[Auth Context] Profile created successfully:', newUser.full_name)
+                      console.log('[Auth Context] Profile created/updated successfully:', newUser.full_name)
                       setUser(newUser)
                     } else if (insertError) {
                       console.warn('[Auth] Error creating user profile:', insertError?.message)
+                      // Still set user with basic info even if profile creation failed
+                      setUser({
+                        id: currentSession.user.id,
+                        email: currentSession.user.email,
+                        full_name: fullName,
+                      } as User)
                     }
                   }
                 } catch (insertErr) {
-                  if (isMounted && !abortController.signal.aborted) {
+                  if (isMounted) {
                     console.warn('[Auth] Exception creating user profile:', insertErr)
+                    // Still set user with basic info even if profile creation failed
+                    setUser({
+                      id: currentSession.user.id,
+                      email: currentSession.user.email,
+                      full_name: currentSession.user.user_metadata?.full_name || currentSession.user.email || 'User',
+                    } as User)
                   }
                 }
               } else if (error) {
-                // Ignore abort errors - they don't block sign-in
-                if (error.message?.includes('AbortError') || error.name === 'AbortError') {
-                  console.warn('[Auth Context] Profile fetch aborted (timeout), allowing sign-in to continue')
-                } else {
-                  console.error('[Auth] Query error on auth state change:', {
-                    code: error.code,
-                    message: error.message,
-                    event,
-                    userId: currentSession.user.id,
-                  })
-                }
+                console.error('[Auth] Query error on auth state change:', {
+                  code: error.code,
+                  message: error.message,
+                  event,
+                  userId: currentSession.user.id,
+                })
+                
+                // Even if there's an error, set user with basic info so they can still use the app
+                setUser({
+                  id: currentSession.user.id,
+                  email: currentSession.user.email,
+                  full_name: currentSession.user.user_metadata?.full_name || currentSession.user.email || 'User',
+                } as User)
               }
             }
           } catch (error) {
-            if (isMounted && !abortController.signal.aborted) {
+            if (isMounted) {
               console.error('[Auth] Exception on auth state change:', error)
             }
           }
@@ -170,7 +179,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isMounted = false
-      abortController.abort()
       authListener?.subscription.unsubscribe()
     }
   }, [])
