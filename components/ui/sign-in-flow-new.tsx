@@ -406,6 +406,16 @@ export const SignInPage = ({ className }: SignInPageProps) => {
     setIsLoading(true);
 
     try {
+      // Show success animation
+      setReverseCanvasVisible(true);
+      setTimeout(() => {
+        setInitialCanvasVisible(false);
+      }, 20);
+      setTimeout(() => {
+        setStep("success");
+      }, 1200);
+      
+      // Start the OAuth flow immediately (redirect to Google)
       await signInWithOAuth("google");
       // Redirect will happen automatically via callback
     } catch (err: any) {

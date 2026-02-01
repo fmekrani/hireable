@@ -27,14 +27,14 @@ export function IntroOverlay({ children }: IntroOverlayProps) {
     // Show waitlist text after hireable.ai animation
     setShowWaitlist(true)
     
-    // After waitlist animation, fade out
+    // After waitlist animation, fade out and start homepage fade-in
     setTimeout(() => {
       sessionStorage.setItem("hireable-intro-seen", "true")
-      setShowIntro(false)
+      setIntroComplete(true)
       setTimeout(() => {
-        setIntroComplete(true)
-      }, 600)
-    }, 2000) // Show waitlist for 2 seconds
+        setShowIntro(false)
+      }, 200)
+    }, 2200) // Show waitlist for 2.2 seconds
   }
 
   return (
@@ -124,7 +124,7 @@ export function IntroOverlay({ children }: IntroOverlayProps) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: introComplete ? 1 : 0 }}
-        transition={{ duration: 0.5 }}
+        transition={{ duration: 1.2, ease: "easeInOut" }}
       >
         {children}
       </motion.div>

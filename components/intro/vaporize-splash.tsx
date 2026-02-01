@@ -12,13 +12,13 @@ export default function VaporizeSplash({ onComplete }: VaporizeSplashProps) {
   const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
-    // Total time: vaporize (1.2s) + fade in (0.5s) = 1.7s, then 0.3s buffer before splash fade
+    // Total time: vaporize (1.5s) + fade in (0.6s) = 2.1s, then fade out
     const timer = setTimeout(() => {
       setIsExiting(true);
       setTimeout(() => {
         onComplete?.();
-      }, 800);
-    }, 2000);
+      }, 600);
+    }, 2100);
 
     return () => clearTimeout(timer);
   }, [onComplete]);
@@ -27,7 +27,7 @@ export default function VaporizeSplash({ onComplete }: VaporizeSplashProps) {
     <motion.div
       initial={{ opacity: 1 }}
       animate={{ opacity: isExiting ? 0 : 1 }}
-      transition={{ duration: 0.8, ease: "easeInOut" }}
+      transition={{ duration: 0.4, ease: "easeInOut" }}
       className="fixed inset-0 z-50 bg-black"
     >
       <div className="w-full h-full">
@@ -42,8 +42,8 @@ export default function VaporizeSplash({ onComplete }: VaporizeSplashProps) {
           spread={5}
           density={5}
           animation={{
-            vaporizeDuration: 1.2,
-            fadeInDuration: 0.5,
+            vaporizeDuration: 1.5,
+            fadeInDuration: 0.6,
             waitDuration: 0,
           }}
           direction="left-to-right"
