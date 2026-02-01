@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Check session on mount
   useEffect(() => {
     let isMounted = true
+    const abortController = new AbortController()
 
     const initializeAuth = async () => {
       try {
@@ -33,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: { session: initialSession },
         } = await supabase.auth.getSession()
 
-        if (!isMounted) return
+        if (!isMounted || abortController.signal.aborted) return
 
         setSession(initialSession)
 
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .eq('id', initialSession.user.id)
               .maybeSingle()
 
-            if (isMounted) {
+            if (isMounted && !abortController.signal.aborted) {
               if (!error && userData) {
                 setUser(userData)
               } else if (error) {
@@ -60,6 +61,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // userData can be null if user profile doesn't exist yet - that's OK
             }
           } catch (err) {
+            if (abortController.signal.aborted) return
+            console.error('[Auth] Exception fetching user profile:', err)
+          }
+        }
+      } catch (error) {
+        if (abortController.signal.aborted) return
+        console.error('Error initializing auth:', error)
             if (isMounted) {
               console.error('[Auth] Exception fetching user profile:', err)
             }
@@ -70,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Error initializing auth:', error)
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && !abortController.signal.aborted) {
           setLoading(false)
         }
       }
@@ -81,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        if (!isMounted) return
+        if (!isMounted || abortController.signal.aborted) return
 
         console.log('[Auth Context] Auth state changed:', event, 'user:', currentSession?.user?.id)
         setSession(currentSession)
@@ -100,43 +108,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             console.log('[Auth Context] User fetch result - error:', error?.message, 'userData:', !!userData)
 
-            if (isMounted) {
+            if (isMounted && !abortController.signal.aborted) {
               if (!error && userData) {
                 console.log('[Auth Context] User profile found:', userData.full_name)
                 setUser(userData)
-              } else {
-                // Fetch failed or no data - create user profile from session data
-                // This handles both email/password and OAuth users
-                console.log('[Auth Context] Creating/setting user from session data')
-                const fullName = currentSession.user.user_metadata?.full_name 
-                  || currentSession.user.user_metadata?.name
-                  || currentSession.user.email 
-                  || 'User'
-                
-                const userData = {
-                  id: currentSession.user.id,
-                  email: currentSession.user.email,
-                  full_name: fullName,
-                } as User
-                
-                console.log('[Auth Context] Setting user:', userData.full_name)
-                setUser(userData)
+              } else if (!userData && !error) {
+                // User profile doesn't exist - create it (for OAuth users)
+                try {
+                  console.log('[Auth Context] Creating user profile for OAuth user')
+                  const fullName = currentSession.user.user_metadata?.full_name || 'User'
+                  console.log('[Auth Context] Using full_name:', fullName)
+                  
+                  const { data: newUser, error: insertError } = await supabase
+                    .from('users')
+                    .insert({
+                      id: currentSession.user.id,
+                      email: currentSession.user.email,
+                      full_name: fullName,
+                    })
+                    .select()
+                    .single()
+
+                  console.log('[Auth Context] Profile creation result - error:', insertError?.message, 'newUser:', !!newUser)
+
+                  if (isMounted && !abortController.signal.aborted) {
+                    if (newUser && !insertError) {
+                      console.log('[Auth Context] Profile created successfully:', newUser.full_name)
+                      setUser(newUser)
+                    } else if (insertError) {
+                      console.warn('[Auth] Error creating user profile:', insertError?.message)
+                    }
+                  }
+                } catch (insertErr) {
+                  console.warn('[Auth] Exception creating user profile:', insertErr)
+                }
+              } else if (error) {
+                console.error('[Auth] Query error on auth state change:', {
+                  code: error.code,
+                  message: error.message,
+                  event,
+                  userId: currentSession.user.id,
+                })
               }
             }
           } catch (error) {
-            if (isMounted) {
-              console.error('[Auth] Exception on auth state change:', error)
-              // Even if fetch throws error, set user from session data
-              const fullName = currentSession.user.user_metadata?.full_name 
-                || currentSession.user.user_metadata?.name
-                || currentSession.user.email 
-                || 'User'
-              setUser({
-                id: currentSession.user.id,
-                email: currentSession.user.email,
-                full_name: fullName,
-              } as User)
-            }
+            if (abortController.signal.aborted) return
+            console.error('[Auth] Exception on auth state change:', error)
           }
         }
       }
@@ -144,6 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isMounted = false
+      abortController.abort()
       authListener?.subscription.unsubscribe()
     }
   }, [])
