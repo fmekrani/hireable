@@ -433,14 +433,12 @@ export const SignInPage = ({ className }: SignInPageProps) => {
 
   // Redirect to analysis page after successful sign in
   useEffect(() => {
-    if (step === "success") {
-      // If we got here, sign-in was successful - redirect after a short delay
-      const timer = setTimeout(() => {
+    if (step === "success" && session) {
+      setTimeout(() => {
         router.push("/analysis");
       }, 2500);
-      return () => clearTimeout(timer);
     }
-  }, [step, router]);
+  }, [step, session, router]);
 
   return (
     <div className={cn("flex w-[100%] flex-col min-h-screen bg-black relative", className)}>
