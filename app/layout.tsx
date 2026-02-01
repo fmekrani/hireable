@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { AuthProvider } from '@/lib/supabase/auth-context'
+import { ErrorSuppressor } from '@/components/error-suppressor'
 
 export const metadata: Metadata = {
   title: 'Hireable',
@@ -12,8 +14,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body className="antialiased">{children}</body>
+    <html lang="en" data-scroll-behavior="smooth">
+      <body className="antialiased">
+        <ErrorSuppressor />
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   )
 }
