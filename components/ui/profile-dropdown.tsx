@@ -28,11 +28,15 @@ export const ProfileDropdown = () => {
 
   const handleSignOut = async () => {
     try {
+      console.log('[ProfileDropdown] Starting sign out...')
       await signOut()
+      console.log('[ProfileDropdown] Sign out successful')
       setIsOpen(false)
+      console.log('[ProfileDropdown] Redirecting to home')
       router.push('/')
     } catch (error) {
-      console.error('Sign out error:', error)
+      console.error('[ProfileDropdown] Sign out error:', error)
+      alert('Failed to sign out: ' + (error instanceof Error ? error.message : 'Unknown error'))
     }
   }
 
@@ -113,14 +117,13 @@ export const ProfileDropdown = () => {
                 </div>
 
                 {/* Sign Out Button */}
-                <motion.button
-                  whileHover={{ backgroundColor: 'rgba(239, 68, 68, 0.08)' }}
+                <button
                   onClick={handleSignOut}
-                  className="w-full px-6 py-3 flex items-center gap-3 text-red-600 hover:text-red-700 transition-colors border-t border-black/10 hover:bg-red-50"
+                  className="w-full px-6 py-3 flex items-center gap-3 text-red-600 hover:text-red-700 transition-colors border-t border-black/10 hover:bg-red-50 cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
                   <span className="text-sm font-medium">Sign Out</span>
-                </motion.button>
+                </button>
               </>
             ) : (
               <motion.button

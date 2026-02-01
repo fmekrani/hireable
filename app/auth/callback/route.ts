@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   if (code) {
     try {
       const supabase = await createServerSupabaseClient()
+      const supabase = await createSupabaseServerClient()
       
       console.log('[Auth Callback] Exchanging code for session...')
       // Exchange the code for a session
