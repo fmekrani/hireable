@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   // Handle successful OAuth code exchange
   if (code) {
     try {
-      const supabase = createSupabaseServerClient()
+      const supabase = await createSupabaseServerClient()
       
       console.log('[Auth Callback] Exchanging code for session...')
       // Exchange the code for a session

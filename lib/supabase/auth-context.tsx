@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Check session on mount
   useEffect(() => {
     let isMounted = true
+    const abortController = new AbortController()
 
     const initializeAuth = async () => {
       try {
@@ -33,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: { session: initialSession },
         } = await supabase.auth.getSession()
 
-        if (!isMounted) return
+        if (!isMounted || abortController.signal.aborted) return
 
         setSession(initialSession)
 
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .eq('id', initialSession.user.id)
               .maybeSingle()
 
-            if (isMounted) {
+            if (isMounted && !abortController.signal.aborted) {
               if (!error && userData) {
                 setUser(userData)
               } else if (error) {
@@ -60,13 +61,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // userData can be null if user profile doesn't exist yet - that's OK
             }
           } catch (err) {
-            console.error('[Auth] Exception fetching user profile:', err)
+            if (isMounted && !abortController.signal.aborted) {
+              console.error('[Auth] Exception fetching user profile:', err)
+            }
           }
         }
       } catch (error) {
-        console.error('Error initializing auth:', error)
+        if (isMounted && !abortController.signal.aborted) {
+          console.error('Error initializing auth:', error)
+        }
       } finally {
-        if (isMounted) {
+        if (isMounted && !abortController.signal.aborted) {
           setLoading(false)
         }
       }
@@ -77,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        if (!isMounted) return
+        if (!isMounted || abortController.signal.aborted) return
 
         console.log('[Auth Context] Auth state changed:', event, 'user:', currentSession?.user?.id)
         setSession(currentSession)
@@ -93,9 +98,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .eq('id', currentSession.user.id)
               .maybeSingle()
 
+            if (!isMounted || abortController.signal.aborted) return
+
             console.log('[Auth Context] User fetch result - error:', error?.message, 'userData:', !!userData)
 
-            if (isMounted) {
+            if (isMounted && !abortController.signal.aborted) {
               if (!error && userData) {
                 console.log('[Auth Context] User profile found:', userData.full_name)
                 setUser(userData)
@@ -116,9 +123,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     .select()
                     .single()
 
+                  if (!isMounted || abortController.signal.aborted) return
+
                   console.log('[Auth Context] Profile creation result - error:', insertError?.message, 'newUser:', !!newUser)
 
-                  if (isMounted) {
+                  if (isMounted && !abortController.signal.aborted) {
                     if (newUser && !insertError) {
                       console.log('[Auth Context] Profile created successfully:', newUser.full_name)
                       setUser(newUser)
@@ -127,7 +136,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     }
                   }
                 } catch (insertErr) {
-                  console.warn('[Auth] Exception creating user profile:', insertErr)
+                  if (isMounted && !abortController.signal.aborted) {
+                    console.warn('[Auth] Exception creating user profile:', insertErr)
+                  }
                 }
               } else if (error) {
                 console.error('[Auth] Query error on auth state change:', {
@@ -139,7 +150,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
             }
           } catch (error) {
-            console.error('[Auth] Exception on auth state change:', error)
+            if (isMounted && !abortController.signal.aborted) {
+              console.error('[Auth] Exception on auth state change:', error)
+            }
           }
         }
       }
@@ -147,6 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isMounted = false
+      abortController.abort()
       authListener?.subscription.unsubscribe()
     }
   }, [])
