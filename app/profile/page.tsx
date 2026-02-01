@@ -4,8 +4,10 @@ import { motion } from "framer-motion"
 import { LimelightNav } from "@/components/ui/limelight-nav-new"
 import { User, Mail, MapPin, Briefcase, Settings, LogOut, Edit2, Home, BarChart3, Video, Calendar } from "lucide-react"
 import Link from "next/link"
+import { useAuth } from "@/lib/supabase/auth-context"
 
 export default function ProfilePage() {
+  const { session, user, loading } = useAuth()
   const navItems = [
     { id: "home", icon: <Home />, label: "Home", href: "/" },
     { id: "analysis", icon: <BarChart3 />, label: "Analysis", href: "/analysis" },
@@ -13,6 +15,28 @@ export default function ProfilePage() {
     { id: "calendar", icon: <Calendar />, label: "Calendar", href: "/calendar" },
     { id: "profile", icon: <User />, label: "Profile", href: "/profile" },
   ]
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full bg-white/10 animate-pulse" />
+      </div>
+    )
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4">
+        <p className="text-white/70">You need to sign in to view your profile.</p>
+        <Link
+          href="/sign-in"
+          className="px-6 py-3 rounded-lg bg-white text-black font-semibold"
+        >
+          Go to Sign In
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-black to-black/80 text-white overflow-x-hidden">
@@ -57,8 +81,8 @@ export default function ProfilePage() {
                     <User className="w-12 h-12 text-white" />
                   </div>
                 </div>
-                <h2 className="text-2xl font-bold mb-1">Alex Johnson</h2>
-                <p className="text-white/60 mb-6">Senior Software Engineer</p>
+                <h2 className="text-2xl font-bold mb-1">{user?.full_name || "User"}</h2>
+                <p className="text-white/60 mb-6">{user?.full_name ? "Career Member" : "Member"}</p>
                 <div className="w-full space-y-3">
                   <button className="w-full bg-white/10 hover:bg-white/20 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-all duration-300">
                     <Edit2 className="w-4 h-4" />
@@ -85,7 +109,7 @@ export default function ProfilePage() {
                   <label className="text-white/60 text-sm mb-2 block">Email</label>
                   <div className="flex items-center gap-3 bg-white/5 p-4 rounded-lg border border-white/10">
                     <Mail className="w-5 h-5 text-white/60" />
-                    <span className="text-white">alex.johnson@email.com</span>
+                    <span className="text-white">{session.user.email}</span>
                   </div>
                 </div>
                 <div>
