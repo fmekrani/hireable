@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { LimelightNav } from '@/components/ui/limelight-nav-new'
 import { ProfileDropdown } from '@/components/ui/profile-dropdown'
 import { Video, Home, BarChart3, Calendar, Sparkles, ArrowRight, Clock, Users, Mic, CheckCircle } from 'lucide-react'
+import { AiInterviewer } from '@/components/interview/ai-interviewer'
 
 const navItems = [
   { id: "home", icon: <Home />, label: "Home", href: "/" },
@@ -111,6 +112,14 @@ export default function InterviewPage() {
                 )
               })}
             </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+          >
+            <AiInterviewer />
           </motion.div>
 
           {/* Upcoming Interviews */}

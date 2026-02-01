@@ -81,9 +81,15 @@ export const SignUpPage = ({ className }: SignUpPageProps) => {
         setStep("success");
       }, 1200);
       
-      // Start the OAuth flow immediately (redirect to Google)
-      await signInWithOAuth("google");
-      // Redirect will happen automatically via callback
+      // Delay OAuth to let success page display
+      setTimeout(async () => {
+        try {
+          await signInWithOAuth("google");
+        } catch (oauthErr: any) {
+          setIsLoading(false);
+          setError(oauthErr.message || "Google sign up failed. Please try again.");
+        }
+      }, 2500);
     } catch (err: any) {
       setIsLoading(false);
       const errorMessage = err.message || "Google sign up failed. Please try again.";
@@ -96,7 +102,7 @@ export const SignUpPage = ({ className }: SignUpPageProps) => {
     if (step === "success" && session) {
       setTimeout(() => {
         router.push("/analysis");
-      }, 1000);
+      }, 2500);
     }
   }, [step, session, router]);
 
@@ -294,7 +300,7 @@ export const SignUpPage = ({ className }: SignUpPageProps) => {
                       animate={{ opacity: 1 }}
                       transition={{ delay: 1 }}
                       onClick={() => {
-                        window.location.href = "/analysis";
+                        router.push("/analysis");
                       }}
                       className="w-full rounded-full bg-white text-black font-medium py-3 hover:bg-white/90 transition-colors"
                     >

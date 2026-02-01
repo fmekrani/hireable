@@ -90,7 +90,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else if (currentSession?.user?.id) {
           try {
             console.log('[Auth Context] Fetching user profile for:', currentSession.user.id)
-            
             const { data: userData, error } = await supabase
               .from('users')
               .select('*')
@@ -206,25 +205,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
-    try {
-      console.log('[Auth] signOut called')
-      const { error } = await supabase.auth.signOut()
-      console.log('[Auth] signOut result - error:', error?.message)
-      
-      // Ignore AbortError - it's a known Supabase issue that doesn't prevent sign-out
-      if (error && !error.message?.includes('AbortError') && error.message !== 'signal is aborted without reason') {
-        throw error
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      console.log('[Auth] signOut error (suppressed):', errMsg)
-      // Don't throw - suppress the AbortError and proceed with local sign-out
-    }
-    
-    // Force clear the user state locally
-    console.log('[Auth] Clearing user state locally')
-    setUser(null)
-    setSession(null)
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
   }
 
   const signInWithOAuth = async (provider: 'google' | 'github') => {

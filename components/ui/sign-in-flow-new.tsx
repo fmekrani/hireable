@@ -415,9 +415,15 @@ export const SignInPage = ({ className }: SignInPageProps) => {
         setStep("success");
       }, 1200);
       
-      // Start the OAuth flow immediately (redirect to Google)
-      await signInWithOAuth("google");
-      // Redirect will happen automatically via callback
+      // Delay OAuth to let success page display
+      setTimeout(async () => {
+        try {
+          await signInWithOAuth("google");
+        } catch (oauthErr: any) {
+          setIsLoading(false);
+          setError(oauthErr.message || "Google sign in failed. Please try again.");
+        }
+      }, 2500);
     } catch (err: any) {
       setIsLoading(false);
       const errorMessage = err.message || "Google sign in failed. Please try again.";
@@ -427,14 +433,12 @@ export const SignInPage = ({ className }: SignInPageProps) => {
 
   // Redirect to analysis page after successful sign in
   useEffect(() => {
-    if (step === "success") {
-      // If we got here, sign-in was successful - redirect after a short delay
-      const timer = setTimeout(() => {
+    if (step === "success" && session) {
+      setTimeout(() => {
         router.push("/analysis");
-      }, 1500);
-      return () => clearTimeout(timer);
+      }, 2500);
     }
-  }, [step, router]);
+  }, [step, session, router]);
 
   return (
     <div className={cn("flex w-[100%] flex-col min-h-screen bg-black relative", className)}>
@@ -602,7 +606,7 @@ export const SignInPage = ({ className }: SignInPageProps) => {
                       animate={{ opacity: 1 }}
                       transition={{ delay: 1 }}
                       onClick={() => {
-                        window.location.href = "/analysis";
+                        router.push("/analysis");
                       }}
                       className="w-full rounded-full bg-white text-black font-medium py-3 hover:bg-white/90 transition-colors"
                     >
