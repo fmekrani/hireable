@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   // Handle successful OAuth code exchange
   if (code) {
     try {
-      const supabase = createSupabaseServerClient()
+      const supabase = await createServerSupabaseClient()
       
       console.log('[Auth Callback] Exchanging code for session...')
       // Exchange the code for a session
