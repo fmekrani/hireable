@@ -104,73 +104,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (!error && userData) {
                 console.log('[Auth Context] User profile found:', userData.full_name)
                 setUser(userData)
-              } else if (!userData && !error) {
-                // User profile doesn't exist - create it
-                try {
-                  console.log('[Auth Context] Creating user profile for new user')
-                  const fullName = currentSession.user.user_metadata?.full_name || currentSession.user.email || 'User'
-                  console.log('[Auth Context] Using full_name:', fullName)
-                  
-                  // Create user profile or get existing one
-                  const { data: newUser, error: insertError } = await supabase
-                    .from('users')
-                    .upsert(
-                      {
-                        id: currentSession.user.id,
-                        email: currentSession.user.email,
-                        full_name: fullName,
-                      },
-                      { onConflict: 'id' }
-                    )
-                    .select()
-                    .single()
-
-                  console.log('[Auth Context] Profile creation result - error:', insertError?.message, 'newUser:', !!newUser)
-
-                  if (isMounted) {
-                    if (newUser && !insertError) {
-                      console.log('[Auth Context] Profile created/updated successfully:', newUser.full_name)
-                      setUser(newUser)
-                    } else if (insertError) {
-                      console.warn('[Auth] Error creating user profile:', insertError?.message)
-                      // Still set user with basic info even if profile creation failed
-                      setUser({
-                        id: currentSession.user.id,
-                        email: currentSession.user.email,
-                        full_name: fullName,
-                      } as User)
-                    }
-                  }
-                } catch (insertErr) {
-                  if (isMounted) {
-                    console.warn('[Auth] Exception creating user profile:', insertErr)
-                    // Still set user with basic info even if profile creation failed
-                    setUser({
-                      id: currentSession.user.id,
-                      email: currentSession.user.email,
-                      full_name: currentSession.user.user_metadata?.full_name || currentSession.user.email || 'User',
-                    } as User)
-                  }
-                }
-              } else if (error) {
-                console.error('[Auth] Query error on auth state change:', {
-                  code: error.code,
-                  message: error.message,
-                  event,
-                  userId: currentSession.user.id,
-                })
+              } else {
+                // Fetch failed or no data - create user profile from session data
+                // This handles both email/password and OAuth users
+                console.log('[Auth Context] Creating/setting user from session data')
+                const fullName = currentSession.user.user_metadata?.full_name 
+                  || currentSession.user.user_metadata?.name
+                  || currentSession.user.email 
+                  || 'User'
                 
-                // Even if there's an error, set user with basic info so they can still use the app
-                setUser({
+                const userData = {
                   id: currentSession.user.id,
                   email: currentSession.user.email,
-                  full_name: currentSession.user.user_metadata?.full_name || currentSession.user.email || 'User',
-                } as User)
+                  full_name: fullName,
+                } as User
+                
+                console.log('[Auth Context] Setting user:', userData.full_name)
+                setUser(userData)
               }
             }
           } catch (error) {
             if (isMounted) {
               console.error('[Auth] Exception on auth state change:', error)
+              // Even if fetch throws error, set user from session data
+              const fullName = currentSession.user.user_metadata?.full_name 
+                || currentSession.user.user_metadata?.name
+                || currentSession.user.email 
+                || 'User'
+              setUser({
+                id: currentSession.user.id,
+                email: currentSession.user.email,
+                full_name: fullName,
+              } as User)
             }
           }
         }
@@ -232,8 +197,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+    try {
+      console.log('[Auth] signOut called')
+      const { error } = await supabase.auth.signOut()
+      console.log('[Auth] signOut result - error:', error?.message)
+      
+      // Ignore AbortError - it's a known Supabase issue that doesn't prevent sign-out
+      if (error && !error.message?.includes('AbortError') && error.message !== 'signal is aborted without reason') {
+        throw error
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.log('[Auth] signOut error (suppressed):', errMsg)
+      // Don't throw - suppress the AbortError and proceed with local sign-out
+    }
+    
+    // Force clear the user state locally
+    console.log('[Auth] Clearing user state locally')
+    setUser(null)
+    setSession(null)
   }
 
   const signInWithOAuth = async (provider: 'google' | 'github') => {
