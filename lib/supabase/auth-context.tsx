@@ -92,11 +92,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else if (currentSession?.user?.id) {
           try {
             console.log('[Auth Context] Fetching user profile for:', currentSession.user.id)
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 5000) // 5s timeout
+            
             const { data: userData, error } = await supabase
               .from('users')
               .select('*')
               .eq('id', currentSession.user.id)
               .maybeSingle()
+            
+            clearTimeout(timeoutId)
 
             if (!isMounted || abortController.signal.aborted) return
 
@@ -141,12 +146,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   }
                 }
               } else if (error) {
-                console.error('[Auth] Query error on auth state change:', {
-                  code: error.code,
-                  message: error.message,
-                  event,
-                  userId: currentSession.user.id,
-                })
+                // Ignore abort errors - they don't block sign-in
+                if (error.message?.includes('AbortError') || error.name === 'AbortError') {
+                  console.warn('[Auth Context] Profile fetch aborted (timeout), allowing sign-in to continue')
+                } else {
+                  console.error('[Auth] Query error on auth state change:', {
+                    code: error.code,
+                    message: error.message,
+                    event,
+                    userId: currentSession.user.id,
+                  })
+                }
               }
             }
           } catch (error) {
