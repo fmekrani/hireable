@@ -56,7 +56,7 @@ export function FloatingHeader({ className }: FloatingHeaderProps) {
           </Link>
 
           {/* Login Button */}
-          <Link href="/auth/login" className="pointer-events-auto">
+          <Link href="/sign-in" className="pointer-events-auto">
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
@@ -204,7 +204,7 @@ export function FloatingHeader({ className }: FloatingHeaderProps) {
                     setShowDropdown(false)
                     try {
                       await signOut()
-                      router.push('/auth/login')
+                      router.push('/sign-in')
                     } catch (error) {
                       console.error('Sign out error:', error)
                       setIsSigning(false)
