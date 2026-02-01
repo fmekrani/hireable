@@ -68,15 +68,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         if (abortController.signal.aborted) return
         console.error('Error initializing auth:', error)
-            if (isMounted) {
-              console.error('[Auth] Exception fetching user profile:', err)
-            }
-          }
-        }
-      } catch (error) {
-        if (isMounted) {
-          console.error('Error initializing auth:', error)
-        }
       } finally {
         if (isMounted && !abortController.signal.aborted) {
           setLoading(false)
