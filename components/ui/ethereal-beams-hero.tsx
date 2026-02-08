@@ -314,7 +314,7 @@ export function EtherealBeamsHero() {
               </span>
               <br />
               <span className="bg-gradient-to-b from-white/90 via-white/70 to-white/30 bg-clip-text text-transparent">
-                copilot
+                companion
               </span>
             </h1>
 
