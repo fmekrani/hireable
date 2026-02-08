@@ -37,8 +37,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!isMounted || abortController.signal.aborted) return
 
         setSession(initialSession)
+        if (isMounted && !abortController.signal.aborted) {
+          setLoading(false)
+        }
 
-        // Fetch user profile if session exists
+        // Fetch user profile if session exists (non-blocking for UI)
         if (initialSession?.user?.id) {
           try {
             const { data: userData, error } = await supabase

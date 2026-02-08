@@ -11,6 +11,7 @@ export const ProfileDropdown = () => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
+  const isProfileLoading = !!session && !user
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -125,6 +126,17 @@ export const ProfileDropdown = () => {
                   <span className="text-sm font-medium">Sign Out</span>
                 </button>
               </>
+            ) : isProfileLoading ? (
+              <div className="px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-black/5 animate-pulse" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-28 bg-black/10 rounded animate-pulse" />
+                    <div className="h-3 w-40 bg-black/10 rounded animate-pulse" />
+                  </div>
+                </div>
+                <div className="mt-4 h-3 w-20 bg-black/10 rounded animate-pulse" />
+              </div>
             ) : (
               <motion.button
                 whileHover={{ backgroundColor: 'rgba(0, 0, 0, 0.05)' }}
