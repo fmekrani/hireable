@@ -22,10 +22,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const hasSupabaseAuth =
+    typeof (supabase as any)?.auth?.getSession === 'function' &&
+    typeof (supabase as any)?.auth?.onAuthStateChange === 'function'
+
   // Check session on mount
   useEffect(() => {
     let isMounted = true
     const abortController = new AbortController()
+
+    if (!hasSupabaseAuth) {
+      console.warn('[Auth] Supabase client not configured. Skipping auth init.')
+      setLoading(false)
+      return () => {
+        isMounted = false
+        abortController.abort()
+      }
+    }
 
     const initializeAuth = async () => {
       try {
@@ -53,15 +66,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (isMounted && !abortController.signal.aborted) {
               if (!error && userData) {
                 setUser(userData)
-              } else if (error) {
+              } else {
+                if (error) {
                 // Log error for debugging
                 console.error('[Auth] Query error fetching user profile:', {
                   code: error.code,
                   message: error.message,
                   userId: initialSession.user.id,
                 })
+                }
+                // userData can be null if user profile doesn't exist yet - that's OK
+                // Fallback to session user so UI reflects signed-in state.
+                setUser({
+                  id: initialSession.user.id,
+                  email: initialSession.user.email ?? '',
+                  full_name: initialSession.user.user_metadata?.full_name,
+                  avatar_url: initialSession.user.user_metadata?.avatar_url,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                })
               }
-              // userData can be null if user profile doesn't exist yet - that's OK
             }
           } catch (err) {
             if (abortController.signal.aborted) return
@@ -143,6 +167,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   userId: currentSession.user.id,
                 })
               }
+
+              if (!userData) {
+                setUser({
+                  id: currentSession.user.id,
+                  email: currentSession.user.email ?? '',
+                  full_name: currentSession.user.user_metadata?.full_name,
+                  avatar_url: currentSession.user.user_metadata?.avatar_url,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                })
+              }
             }
           } catch (error) {
             if (abortController.signal.aborted) return
@@ -160,6 +195,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signUp = async (email: string, password: string, fullName: string) => {
+    if (!hasSupabaseAuth) {
+      throw new Error('Supabase client is not configured')
+    }
     const { error: signUpError, data } = await supabase.auth.signUp({
       email,
       password,
@@ -199,6 +237,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signIn = async (email: string, password: string) => {
+    if (!hasSupabaseAuth) {
+      throw new Error('Supabase client is not configured')
+    }
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -208,11 +249,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
+    if (!hasSupabaseAuth) {
+      throw new Error('Supabase client is not configured')
+    }
     const { error } = await supabase.auth.signOut()
     if (error) throw error
   }
 
   const signInWithOAuth = async (provider: 'google' | 'github') => {
+    if (!hasSupabaseAuth) {
+      throw new Error('Supabase client is not configured')
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
