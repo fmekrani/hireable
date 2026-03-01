@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,11 +20,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Create Supabase client with auth token
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[Analysis Save API] Missing Supabase credentials')
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          authorization: authHeader,
+        },
+      },
+    })
+
     // Get user session
-    const token = authHeader.replace('Bearer ', '')
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token)
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError || !user) {
+      console.error('[Analysis Save API] Auth error:', userError)
       return NextResponse.json(
         { success: false, error: 'Failed to authenticate user' },
         { status: 401 }
@@ -48,7 +68,11 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('[Analysis Save API] Database error:', error)
       return NextResponse.json(
-        { success: false, error: 'Failed to save analysis' },
+        { 
+          success: false, 
+          error: error.message || 'Failed to save analysis to database',
+          details: error
+        },
         { status: 500 }
       )
     }

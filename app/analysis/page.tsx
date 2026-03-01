@@ -143,11 +143,14 @@ export default function AnalysisPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
+        console.log('[Analysis Save] No session found')
         setSaveConfirmation({ show: true, message: 'Please sign in to save analyses', type: 'error' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
         setIsSaving(false)
         return
       }
+
+      console.log('[Analysis Save] Starting save, user:', session.user?.id)
 
       const response = await fetch('/api/analysis/save', {
         method: 'POST',
@@ -164,7 +167,9 @@ export default function AnalysisPage() {
         }),
       })
 
+      console.log('[Analysis Save] API Response status:', response.status)
       const result = await response.json()
+      console.log('[Analysis Save] API Response:', result)
 
       if (result.success) {
         const newAnalysis: SavedAnalysis = {
@@ -182,12 +187,15 @@ export default function AnalysisPage() {
         setSaveConfirmation({ show: true, message: '✓ Analysis saved successfully!', type: 'success' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       } else {
-        setSaveConfirmation({ show: true, message: result.error || 'Failed to save analysis', type: 'error' })
+        const errorMsg = result.error || result.details?.message || 'Failed to save analysis'
+        console.error('[Analysis Save] API Error:', errorMsg, result.details)
+        setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       }
     } catch (error) {
       console.error('[Analysis Save] Error:', error)
-      setSaveConfirmation({ show: true, message: 'Error saving analysis', type: 'error' })
+      const errorMsg = error instanceof Error ? error.message : 'Error saving analysis'
+      setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
       setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
     } finally {
       setIsSaving(false)

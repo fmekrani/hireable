@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,11 +18,31 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Create Supabase client with auth token
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[Analysis List API] Missing Supabase credentials')
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          authorization: authHeader,
+        },
+      },
+    })
+
     // Get user session
-    const token = authHeader.replace('Bearer ', '')
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token)
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError || !user) {
+      console.error('[Analysis List API] Auth error:', userError)
       return NextResponse.json(
         { success: false, error: 'Failed to authenticate user' },
         { status: 401 }
@@ -39,7 +59,11 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('[Analysis List API] Database error:', error)
       return NextResponse.json(
-        { success: false, error: 'Failed to fetch analyses' },
+        { 
+          success: false, 
+          error: error.message || 'Failed to fetch analyses',
+          details: error
+        },
         { status: 500 }
       )
     }
@@ -51,7 +75,11 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[Analysis List API] Error:', error)
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Internal server error',
+        details: error instanceof Error ? error.stack : 'Unknown error'
+      },
       { status: 500 }
     )
   }
