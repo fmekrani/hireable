@@ -30,14 +30,6 @@ import { ProfileDropdown } from '@/components/ui/profile-dropdown'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 
-// Mock data for previous analyses
-const previousAnalyses = [
-  { id: 1, company: 'Google', position: 'Senior SWE', date: 'Jan 28', score: 85, status: 'completed' },
-  { id: 2, company: 'Amazon', position: 'SDE II', date: 'Jan 25', score: 72, status: 'completed' },
-  { id: 3, company: 'Meta', position: 'E4 Engineer', date: 'Jan 22', score: 78, status: 'completed' },
-  { id: 4, company: 'Apple', position: 'Software Engineer', date: 'Jan 20', score: 68, status: 'completed' },
-]
-
 const mockSkills = ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'REST APIs', 'Git', 'Agile', 'Testing']
 const mockMissingSkills = [
   { skill: 'System Design', priority: 'high', resources: 3 },
@@ -57,13 +49,24 @@ const navItems = [
   { id: "calendar", icon: <Calendar />, label: "Calendar", href: "/calendar" },
 ]
 
+interface SavedAnalysis {
+  id: string
+  company: string
+  position: string
+  date: string
+  score: number
+  url: string
+  status: 'completed' | 'in-progress'
+}
+
 export default function AnalysisPage() {
   const [url, setUrl] = useState('')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showResults, setShowResults] = useState(false)
-  const [selectedAnalysis, setSelectedAnalysis] = useState<number | null>(null)
+  const [selectedAnalysis, setSelectedAnalysis] = useState<string | null>(null)
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
   const [scrapeError, setScrapeError] = useState<string | null>(null)
   const [rawScrapePayload, setRawScrapePayload] = useState<Record<string, unknown> | null>(null)
   const [resumeText, setResumeText] = useState<string | null>(null)
@@ -95,6 +98,30 @@ export default function AnalysisPage() {
   } | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
+
+  const saveAnalysis = () => {
+    if (!jobData) return
+    
+    const newAnalysis: SavedAnalysis = {
+      id: Date.now().toString(),
+      company: jobData.company_name || 'Unknown Company',
+      position: jobData.job_title || 'Unknown Position',
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      score: 72, // Placeholder score
+      url: url,
+      status: 'completed',
+    }
+    
+    setSavedAnalyses([newAnalysis, ...savedAnalyses])
+    setSelectedAnalysis(newAnalysis.id)
+  }
+
+  const deleteAnalysis = (id: string) => {
+    setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
+    if (selectedAnalysis === id) {
+      setSelectedAnalysis(null)
+    }
+  }
 
   const handleAnalyze = async () => {
     console.log('[Job Analysis] handleAnalyze called, url:', url, 'resumeFile:', resumeFile?.name)
@@ -256,50 +283,56 @@ export default function AnalysisPage() {
               <div className="bg-gradient-to-r from-cyan-500/20 to-blue-600/20 px-6 py-4 border-b border-white/10">
                 <h3 className="font-semibold text-white flex items-center gap-2">
                   <History className="w-4 h-4" />
-                  Previous Analyses
+                  {savedAnalyses.length > 0 ? 'Saved Analyses' : 'No Analyses'}
                 </h3>
               </div>
               <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto">
-                {previousAnalyses.map((analysis) => (
-                  <motion.div
-                    key={analysis.id}
-                    whileHover={{ x: 4 }}
-                    onClick={() => setSelectedAnalysis(analysis.id)}
-                    className={cn(
-                      'px-6 py-4 cursor-pointer transition-all',
-                      selectedAnalysis === analysis.id
-                        ? 'bg-cyan-500/20 border-l-2 border-cyan-500'
-                        : 'hover:bg-white/5'
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <h4 className="text-sm font-semibold text-white truncate">{analysis.company}</h4>
-                        <p className="text-xs text-white/60 truncate">{analysis.position}</p>
+                {savedAnalyses.length === 0 ? (
+                  <div className="px-6 py-8 text-center">
+                    <p className="text-xs text-white/40">Run an analysis and save it to see it here</p>
+                  </div>
+                ) : (
+                  savedAnalyses.map((analysis) => (
+                    <motion.div
+                      key={analysis.id}
+                      whileHover={{ x: 4 }}
+                      onClick={() => setSelectedAnalysis(analysis.id)}
+                      className={cn(
+                        'px-6 py-4 cursor-pointer transition-all',
+                        selectedAnalysis === analysis.id
+                          ? 'bg-cyan-500/20 border-l-2 border-cyan-500'
+                          : 'hover:bg-white/5'
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <h4 className="text-sm font-semibold text-white truncate">{analysis.company}</h4>
+                          <p className="text-xs text-white/60 truncate">{analysis.position}</p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteAnalysis(analysis.id)
+                          }}
+                          className="text-white/40 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          // Delete handler
-                        }}
-                        className="text-white/40 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-white/50">{analysis.date}</span>
-                      <div className={cn(
-                        'text-xs font-bold px-2 py-1 rounded',
-                        analysis.score >= 80 ? 'bg-green-500/20 text-green-400' :
-                        analysis.score >= 70 ? 'bg-amber-500/20 text-amber-400' :
-                        'bg-red-500/20 text-red-400'
-                      )}>
-                        {analysis.score}%
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-white/50">{analysis.date}</span>
+                        <div className={cn(
+                          'text-xs font-bold px-2 py-1 rounded',
+                          analysis.score >= 80 ? 'bg-green-500/20 text-green-400' :
+                          analysis.score >= 70 ? 'bg-amber-500/20 text-amber-400' :
+                          'bg-red-500/20 text-red-400'
+                        )}>
+                          {analysis.score}%
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  ))
+                )}
               </div>
             </div>
           </motion.div>
@@ -498,7 +531,7 @@ export default function AnalysisPage() {
                   whileHover={{ scale: 1.02 }}
                   className="bg-gradient-to-br from-cyan-500/20 to-blue-600/20 backdrop-blur-xl rounded-2xl border border-cyan-500/30 p-8 hover:border-cyan-500/50 transition-all duration-300"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-6">
                     <div>
                       <h3 className="text-lg font-semibold text-white mb-2">Overall Match Score</h3>
                       <p className="text-white/60">Based on your resume and the job requirements</p>
@@ -508,6 +541,17 @@ export default function AnalysisPage() {
                       <span className="text-sm text-green-400">Good Fit</span>
                     </div>
                   </div>
+                  
+                  {/* Save Analysis Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={saveAnalysis}
+                    className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-all duration-300"
+                  >
+                    <Check className="w-4 h-4" />
+                    Save This Analysis
+                  </motion.button>
                 </motion.div>
 
                 {/* Temporary: Parsed Scrape Output */}
