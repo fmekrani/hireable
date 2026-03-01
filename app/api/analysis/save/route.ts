@@ -64,6 +64,12 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    // Package the complete analysis data into jobData
+    const completeJobData = {
+      ...jobData,
+      analysisResults: analysisResults || null,
+    }
+
     // Save analysis to database
     const insertData: any = {
       user_id: user.id,
@@ -71,10 +77,10 @@ export async function POST(request: NextRequest) {
       position_title: position,
       match_score: score,
       job_url: url,
-      job_data: jobData,
+      job_data: completeJobData,
       created_at: new Date().toISOString(),
     }
-    // Note: analysis_results column doesn't exist yet, will be added in migration 004
+    // Note: analysis_results column will be used once migration 004 is applied
 
     const { data, error } = await supabase
       .from('user_analyses')

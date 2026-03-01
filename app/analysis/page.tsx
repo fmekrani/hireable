@@ -254,16 +254,24 @@ export default function AnalysisPage() {
           const analysis = result.data.find((a: any) => a.id === analysisId)
           if (analysis) {
             console.log('[Analysis Load] Found in database:', analysis)
-            setSelectedAnalysisData(analysis.job_data)
-            setJobData(analysis.job_data)
+            
+            // Extract jobData and analysisResults from job_data
+            const jobDataFromDb = analysis.job_data
+            const analysisResultsFromDb = jobDataFromDb?.analysisResults || null
+            
+            // Remove analysisResults from jobData when setting it
+            const cleanJobData = jobDataFromDb ? { ...jobDataFromDb } : null
+            delete cleanJobData?.analysisResults
+            
+            setSelectedAnalysisData(jobDataFromDb)
+            setJobData(cleanJobData)
             setUrl(analysis.job_url)
             
-            // Load analysis results if they exist
-            if (analysis.analysis_results) {
+            // Restore analysis results
+            if (analysisResultsFromDb) {
               console.log('[Analysis Load] Restoring analysis results')
-              setAnalysisResults(analysis.analysis_results)
+              setAnalysisResults(analysisResultsFromDb)
             } else {
-              // If no analysis results stored, set to empty
               setAnalysisResults(null)
             }
             
