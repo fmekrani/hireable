@@ -246,6 +246,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!hasSupabaseAuth) {
       throw new Error('Supabase client is not configured')
     }
+    
+    // Clear previous user's data from localStorage
+    localStorage.removeItem('savedAnalyses')
+    localStorage.removeItem('savedAnalysesData')
+    
     const { error: signUpError, data } = await supabase.auth.signUp({
       email,
       password,
@@ -288,6 +293,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!hasSupabaseAuth) {
       throw new Error('Supabase client is not configured')
     }
+    
+    // Clear previous user's data from localStorage
+    localStorage.removeItem('savedAnalyses')
+    localStorage.removeItem('savedAnalysesData')
+    
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -300,6 +310,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!hasSupabaseAuth) {
       throw new Error('Supabase client is not configured')
     }
+    
+    // Clear user-specific data from localStorage
+    localStorage.removeItem('savedAnalyses')
+    localStorage.removeItem('savedAnalysesData')
+    
     const { error } = await supabase.auth.signOut()
     if (error) throw error
   }
@@ -308,6 +323,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!hasSupabaseAuth) {
       throw new Error('Supabase client is not configured')
     }
+    
+    // Clear previous user's data from localStorage
+    localStorage.removeItem('savedAnalyses')
+    localStorage.removeItem('savedAnalysesData')
+    
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
