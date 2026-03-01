@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect, useContext } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { AuthContext } from '@/lib/supabase/auth-context'
+import { useAuth } from '@/lib/supabase/auth-context'
 import { 
   Link as LinkIcon,
   Upload,
@@ -104,7 +104,7 @@ export default function AnalysisPage() {
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
   
   // Get auth context
-  const { session, loading: authLoading } = useContext(AuthContext) || { session: null, loading: true }
+  const { session, loading: authLoading } = useAuth()
 
   // Load saved analyses from database on mount and when auth is ready
   useEffect(() => {
