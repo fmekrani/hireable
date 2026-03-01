@@ -202,6 +202,8 @@ export default function AnalysisPage() {
           const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
           dataMap[newAnalysis.id] = jobData
           localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
+          console.log('[Analysis Save] Stored in localStorage with ID:', newAnalysis.id)
+          console.log('[Analysis Save] Stored data keys:', Object.keys(jobData || {}))
         } catch (e) {
           console.warn('[Analysis Save] Failed to backup to localStorage:', e)
         }
@@ -233,6 +235,8 @@ export default function AnalysisPage() {
             const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
             dataMap[newAnalysis.id] = jobData
             localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
+            console.log('[Analysis Save] Fallback saved with ID:', newAnalysis.id)
+            console.log('[Analysis Save] Fallback stored data keys:', Object.keys(jobData || {}))
             
             setSavedAnalyses([newAnalysis, ...savedAnalyses])
             setSelectedAnalysis(newAnalysis.id)
@@ -282,6 +286,8 @@ export default function AnalysisPage() {
 
   const loadSavedAnalysis = async (analysisId: string) => {
     try {
+      console.log('[Analysis Load] Loading analysis with ID:', analysisId)
+      
       // Try to load from database first
       const { data: { session } } = await supabase.auth.getSession()
       
@@ -297,27 +303,40 @@ export default function AnalysisPage() {
         if (result.success && result.data) {
           const analysis = result.data.find((a: any) => a.id === analysisId)
           if (analysis) {
+            console.log('[Analysis Load] Found in database:', analysis)
             setSelectedAnalysisData(analysis.job_data)
             setJobData(analysis.job_data)
             setUrl(analysis.job_url)
             setShowResults(true)
-            console.log('[Analysis Load] Loaded from database:', analysis)
             return
           }
         }
       }
       
       // Fallback to localStorage
+      console.log('[Analysis Load] Trying localStorage fallback')
       const localAnalyses = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
-      const analysisData = localAnalyses[analysisId]
+      console.log('[Analysis Load] savedAnalysesData:', Object.keys(localAnalyses))
       
-      if (analysisData) {
+      const analysisData = localAnalyses[analysisId]
+      console.log('[Analysis Load] Found in localStorage:', analysisData)
+      
+      if (analysisData && analysisData.job_title) {
+        // analysisData is the jobData object
         setSelectedAnalysisData(analysisData)
         setJobData(analysisData)
-        setUrl(analysisData.url)
+        
+        // Get URL from the savedAnalyses metadata
+        const savedMeta = savedAnalyses.find(a => a.id === analysisId)
+        if (savedMeta && savedMeta.url) {
+          setUrl(savedMeta.url)
+        }
+        
         setShowResults(true)
-        console.log('[Analysis Load] Loaded from localStorage:', analysisData)
+        console.log('[Analysis Load] Successfully loaded from localStorage')
       } else {
+        console.log('[Analysis Load] No data found for ID:', analysisId)
+        console.log('[Analysis Load] Available keys:', Object.keys(localAnalyses))
         setSaveConfirmation({ show: true, message: 'Could not load analysis details', type: 'error' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       }
