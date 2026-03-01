@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useContext } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { AuthContext } from '@/lib/supabase/auth-context'
 import { 
   Link as LinkIcon,
   Upload,
@@ -101,13 +102,21 @@ export default function AnalysisPage() {
   } | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
+  
+  // Get auth context
+  const { session, loading: authLoading } = useContext(AuthContext) || { session: null, loading: true }
 
-  // Load saved analyses from database on mount
+  // Load saved analyses from database on mount and when auth is ready
   useEffect(() => {
+    if (authLoading) return // Wait for auth to be ready
+    
     const loadSavedAnalyses = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) return
+        if (!session) {
+          // No session, clear saved analyses
+          setSavedAnalyses([])
+          return
+        }
 
         const response = await fetch('/api/analysis/list', {
           headers: {
@@ -116,6 +125,8 @@ export default function AnalysisPage() {
         })
 
         const result = await response.json()
+        console.log('[Analysis] Loaded analyses from database:', result)
+        
         if (result.success && result.data) {
           const formattedAnalyses = result.data.map((analysis: any) => ({
             id: analysis.id,
@@ -127,25 +138,20 @@ export default function AnalysisPage() {
             status: 'completed' as const,
           }))
           setSavedAnalyses(formattedAnalyses)
+          console.log('[Analysis] Formatted analyses:', formattedAnalyses)
         } else {
-          // Fallback to localStorage if API fails
-          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
-          setSavedAnalyses(localAnalyses)
+          console.log('[Analysis] API returned no data, clearing analyses')
+          setSavedAnalyses([])
         }
       } catch (error) {
         console.error('[Analysis] Failed to load saved analyses:', error)
-        // Fallback to localStorage on error
-        try {
-          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
-          setSavedAnalyses(localAnalyses)
-        } catch (localError) {
-          console.error('[Analysis] Failed to load from localStorage:', localError)
-        }
+        // On error, don't use localStorage fallback anymore - just show empty
+        setSavedAnalyses([])
       }
     }
 
     loadSavedAnalyses()
-  }, [])
+  }, [authLoading, session])
 
   const saveAnalysis = async () => {
     if (!jobData) return
