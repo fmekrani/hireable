@@ -138,15 +138,19 @@ export default function AnalysisPage() {
         console.log('[Analysis] Loaded analyses from database:', result)
         
         if (result.success && result.data) {
-          const formattedAnalyses = result.data.map((analysis: any) => ({
-            id: analysis.id,
-            company: analysis.company_name,
-            position: analysis.position_title,
-            date: new Date(analysis.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            score: analysis.match_score || 72,
-            url: analysis.job_url,
-            status: 'completed' as const,
-          }))
+          const formattedAnalyses = result.data.map((analysis: any) => {
+            // Use analysis results score if available, otherwise use stored match_score
+            const score = analysis.analysis_results?.readiness?.score || analysis.match_score || 72
+            return {
+              id: analysis.id,
+              company: analysis.company_name,
+              position: analysis.position_title,
+              date: new Date(analysis.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              score: score,
+              url: analysis.job_url,
+              status: 'completed' as const,
+            }
+          })
           setSavedAnalyses(formattedAnalyses)
           console.log('[Analysis] Formatted analyses:', formattedAnalyses)
         } else {
@@ -189,9 +193,10 @@ export default function AnalysisPage() {
         body: JSON.stringify({
           company: jobData.company_name || 'Unknown Company',
           position: jobData.job_title || 'Unknown Position',
-          score: 72,
+          score: analysisResults?.readiness.score || 72,
           url: url,
           jobData: jobData,
+          analysisResults: analysisResults,
         }),
       })
 
@@ -205,7 +210,7 @@ export default function AnalysisPage() {
           company: jobData.company_name || 'Unknown Company',
           position: jobData.job_title || 'Unknown Position',
           date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          score: 72,
+          score: analysisResults?.readiness.score || 72,
           url: url,
           status: 'completed',
         }
@@ -252,6 +257,16 @@ export default function AnalysisPage() {
             setSelectedAnalysisData(analysis.job_data)
             setJobData(analysis.job_data)
             setUrl(analysis.job_url)
+            
+            // Load analysis results if they exist
+            if (analysis.analysis_results) {
+              console.log('[Analysis Load] Restoring analysis results')
+              setAnalysisResults(analysis.analysis_results)
+            } else {
+              // If no analysis results stored, set to empty
+              setAnalysisResults(null)
+            }
+            
             setShowResults(true)
             return
           }

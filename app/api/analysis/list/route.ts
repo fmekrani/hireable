@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifySupabaseToken } from '@/lib/supabase/verify-token'
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Create Supabase client with the token in Authorization header
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: {
@@ -49,7 +51,7 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Get user session
+    // Get user session using the token from Authorization header
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError || !user) {
