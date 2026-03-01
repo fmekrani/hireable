@@ -65,18 +65,24 @@ export async function POST(request: NextRequest) {
     })
 
     // Save analysis to database
+    const insertData: any = {
+      user_id: user.id,
+      company_name: company,
+      position_title: position,
+      match_score: score,
+      job_url: url,
+      job_data: jobData,
+      created_at: new Date().toISOString(),
+    }
+
+    // Only include analysis_results if it exists (optional column)
+    if (analysisResults) {
+      insertData.analysis_results = analysisResults
+    }
+
     const { data, error } = await supabase
       .from('user_analyses')
-      .insert({
-        user_id: user.id,
-        company_name: company,
-        position_title: position,
-        match_score: score,
-        job_url: url,
-        job_data: jobData,
-        analysis_results: analysisResults || null,
-        created_at: new Date().toISOString(),
-      })
+      .insert(insertData)
       .select()
 
     if (error) {
