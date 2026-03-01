@@ -21,8 +21,19 @@ export async function DELETE(request: NextRequest) {
     // Get user from request
     const authHeader = request.headers.get('authorization')
     if (!authHeader) {
+      console.error('[Analysis Delete API] No authorization header')
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Extract token from "Bearer <token>"
+    const token = authHeader.replace('Bearer ', '')
+    if (!token) {
+      console.error('[Analysis Delete API] Invalid authorization header format')
+      return NextResponse.json(
+        { success: false, error: 'Invalid token format' },
         { status: 401 }
       )
     }
@@ -42,7 +53,7 @@ export async function DELETE(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: {
-          authorization: authHeader,
+          Authorization: `Bearer ${token}`,
         },
       },
     })
