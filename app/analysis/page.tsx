@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useAuth } from '@/lib/supabase/auth-context'
 import { 
   Link as LinkIcon,
   Upload,
@@ -101,13 +102,21 @@ export default function AnalysisPage() {
   } | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
+  
+  // Get auth context
+  const { session, loading: authLoading } = useAuth()
 
-  // Load saved analyses from database on mount
+  // Load saved analyses from database on mount and when auth is ready
   useEffect(() => {
+    if (authLoading) return // Wait for auth to be ready
+    
     const loadSavedAnalyses = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) return
+        if (!session) {
+          // No session, clear saved analyses
+          setSavedAnalyses([])
+          return
+        }
 
         const response = await fetch('/api/analysis/list', {
           headers: {
@@ -116,6 +125,8 @@ export default function AnalysisPage() {
         })
 
         const result = await response.json()
+        console.log('[Analysis] Loaded analyses from database:', result)
+        
         if (result.success && result.data) {
           const formattedAnalyses = result.data.map((analysis: any) => ({
             id: analysis.id,
@@ -127,25 +138,20 @@ export default function AnalysisPage() {
             status: 'completed' as const,
           }))
           setSavedAnalyses(formattedAnalyses)
+          console.log('[Analysis] Formatted analyses:', formattedAnalyses)
         } else {
-          // Fallback to localStorage if API fails
-          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
-          setSavedAnalyses(localAnalyses)
+          console.log('[Analysis] API returned no data, clearing analyses')
+          setSavedAnalyses([])
         }
       } catch (error) {
         console.error('[Analysis] Failed to load saved analyses:', error)
-        // Fallback to localStorage on error
-        try {
-          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
-          setSavedAnalyses(localAnalyses)
-        } catch (localError) {
-          console.error('[Analysis] Failed to load from localStorage:', localError)
-        }
+        // On error, don't use localStorage fallback anymore - just show empty
+        setSavedAnalyses([])
       }
     }
 
     loadSavedAnalyses()
-  }, [])
+  }, [authLoading, session])
 
   const saveAnalysis = async () => {
     if (!jobData) return
@@ -153,7 +159,7 @@ export default function AnalysisPage() {
     setIsSaving(true)
     
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      // Use session from auth hook (already available)
       if (!session) {
         console.log('[Analysis Save] No session found')
         setSaveConfirmation({ show: true, message: 'Please sign in to save analyses', type: 'error' })
@@ -197,78 +203,13 @@ export default function AnalysisPage() {
         setSavedAnalyses([newAnalysis, ...savedAnalyses])
         setSelectedAnalysis(newAnalysis.id)
         
-        // Also store in localStorage as backup
-        try {
-          const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
-          dataMap[newAnalysis.id] = jobData
-          localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
-        } catch (e) {
-          console.warn('[Analysis Save] Failed to backup to localStorage:', e)
-        }
-        
         setSaveConfirmation({ show: true, message: '✓ Analysis saved successfully!', type: 'success' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       } else {
         const errorMsg = result.error || result.details?.message || 'Failed to save analysis'
         console.error('[Analysis Save] API Error:', errorMsg, result.details)
-        
-        // Fallback: Save to localStorage if database fails but user is authenticated
-        if (session?.user?.id) {
-          try {
-            const newAnalysis: SavedAnalysis = {
-              id: Date.now().toString(),
-              company: jobData.company_name || 'Unknown Company',
-              position: jobData.job_title || 'Unknown Position',
-              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-              score: 72,
-              url: url,
-              status: 'completed',
-            }
-            
-            const saved = JSON.parse(localStorage.getItem('savedAnalyses') || '[]') as SavedAnalysis[]
-            saved.unshift(newAnalysis)
-            localStorage.setItem('savedAnalyses', JSON.stringify(saved))
-            
-            // Also store the full analysis data
-            const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
-            dataMap[newAnalysis.id] = jobData
-            localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
-            
-            setSavedAnalyses([newAnalysis, ...savedAnalyses])
-            setSelectedAnalysis(newAnalysis.id)
-            setSaveConfirmation({ 
-              show: true, 
-              message: '✓ Saved locally (sync pending)', 
-              type: 'success' 
-            })
-            setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
-          } catch (fallbackError) {
-            console.error('[Analysis Save] Fallback save failed:', fallbackError)
-            // Check if it's a table not found error
-            if (result.details?.code === 'PGRST116' || result.details?.message?.includes('user_analyses')) {
-              setSaveConfirmation({ 
-                show: true, 
-                message: 'Database not set up yet. Please run the migration or contact support.', 
-                type: 'error' 
-              })
-            } else {
-              setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
-            }
-            setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
-          }
-        } else {
-          // Check if it's a table not found error
-          if (result.details?.code === 'PGRST116' || result.details?.message?.includes('user_analyses')) {
-            setSaveConfirmation({ 
-              show: true, 
-              message: 'Database not set up yet. Please contact support.', 
-              type: 'error' 
-            })
-          } else {
-            setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
-          }
-          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
-        }
+        setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
       }
     } catch (error) {
       console.error('[Analysis Save] Error:', error)
@@ -282,9 +223,9 @@ export default function AnalysisPage() {
 
   const loadSavedAnalysis = async (analysisId: string) => {
     try {
-      // Try to load from database first
-      const { data: { session } } = await supabase.auth.getSession()
+      console.log('[Analysis Load] Loading analysis with ID:', analysisId)
       
+      // Use session from auth hook (already available)
       if (session) {
         const response = await fetch('/api/analysis/list', {
           headers: {
@@ -297,30 +238,19 @@ export default function AnalysisPage() {
         if (result.success && result.data) {
           const analysis = result.data.find((a: any) => a.id === analysisId)
           if (analysis) {
+            console.log('[Analysis Load] Found in database:', analysis)
             setSelectedAnalysisData(analysis.job_data)
             setJobData(analysis.job_data)
             setUrl(analysis.job_url)
             setShowResults(true)
-            console.log('[Analysis Load] Loaded from database:', analysis)
             return
           }
         }
       }
       
-      // Fallback to localStorage
-      const localAnalyses = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
-      const analysisData = localAnalyses[analysisId]
-      
-      if (analysisData) {
-        setSelectedAnalysisData(analysisData)
-        setJobData(analysisData)
-        setUrl(analysisData.url)
-        setShowResults(true)
-        console.log('[Analysis Load] Loaded from localStorage:', analysisData)
-      } else {
-        setSaveConfirmation({ show: true, message: 'Could not load analysis details', type: 'error' })
-        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
-      }
+      console.log('[Analysis Load] Failed to load from database')
+      setSaveConfirmation({ show: true, message: 'Could not load analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
     } catch (error) {
       console.error('[Analysis Load] Error:', error)
       setSaveConfirmation({ show: true, message: 'Error loading analysis', type: 'error' })
@@ -330,7 +260,7 @@ export default function AnalysisPage() {
 
   const deleteAnalysis = async (id: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      // Use session from auth hook (already available)
       if (!session) {
         setSaveConfirmation({ show: true, message: 'Please sign in to delete analyses', type: 'error' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
@@ -356,22 +286,8 @@ export default function AnalysisPage() {
         setSaveConfirmation({ show: true, message: '✓ Analysis deleted', type: 'success' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       } else {
-        // Fallback: Try to delete from localStorage
-        try {
-          const saved = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
-          const updated = saved.filter((a: SavedAnalysis) => a.id !== id)
-          localStorage.setItem('savedAnalyses', JSON.stringify(updated))
-          
-          setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
-          if (selectedAnalysis === id) {
-            setSelectedAnalysis(null)
-          }
-          setSaveConfirmation({ show: true, message: '✓ Deleted (local)', type: 'success' })
-          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
-        } catch (fallbackError) {
-          setSaveConfirmation({ show: true, message: 'Failed to delete analysis', type: 'error' })
-          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
-        }
+        setSaveConfirmation({ show: true, message: 'Failed to delete analysis', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       }
     } catch (error) {
       console.error('[Analysis Delete] Error:', error)
