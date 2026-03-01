@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Link as LinkIcon,
@@ -67,6 +67,8 @@ export default function AnalysisPage() {
   const [showResults, setShowResults] = useState(false)
   const [selectedAnalysis, setSelectedAnalysis] = useState<string | null>(null)
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveConfirmation, setSaveConfirmation] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' })
   const [scrapeError, setScrapeError] = useState<string | null>(null)
   const [rawScrapePayload, setRawScrapePayload] = useState<Record<string, unknown> | null>(null)
   const [resumeText, setResumeText] = useState<string | null>(null)
@@ -99,27 +101,134 @@ export default function AnalysisPage() {
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
 
-  const saveAnalysis = () => {
+  // Load saved analyses from database on mount
+  useEffect(() => {
+    const loadSavedAnalyses = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return
+
+        const response = await fetch('/api/analysis/list', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        })
+
+        const result = await response.json()
+        if (result.success && result.data) {
+          const formattedAnalyses = result.data.map((analysis: any) => ({
+            id: analysis.id,
+            company: analysis.company_name,
+            position: analysis.position_title,
+            date: new Date(analysis.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            score: analysis.match_score || 72,
+            url: analysis.job_url,
+            status: 'completed' as const,
+          }))
+          setSavedAnalyses(formattedAnalyses)
+        }
+      } catch (error) {
+        console.error('[Analysis] Failed to load saved analyses:', error)
+      }
+    }
+
+    loadSavedAnalyses()
+  }, [])
+
+  const saveAnalysis = async () => {
     if (!jobData) return
     
-    const newAnalysis: SavedAnalysis = {
-      id: Date.now().toString(),
-      company: jobData.company_name || 'Unknown Company',
-      position: jobData.job_title || 'Unknown Position',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      score: 72, // Placeholder score
-      url: url,
-      status: 'completed',
-    }
+    setIsSaving(true)
     
-    setSavedAnalyses([newAnalysis, ...savedAnalyses])
-    setSelectedAnalysis(newAnalysis.id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setSaveConfirmation({ show: true, message: 'Please sign in to save analyses', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        setIsSaving(false)
+        return
+      }
+
+      const response = await fetch('/api/analysis/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          company: jobData.company_name || 'Unknown Company',
+          position: jobData.job_title || 'Unknown Position',
+          score: 72,
+          url: url,
+          jobData: jobData,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        const newAnalysis: SavedAnalysis = {
+          id: result.data?.id || Date.now().toString(),
+          company: jobData.company_name || 'Unknown Company',
+          position: jobData.job_title || 'Unknown Position',
+          date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          score: 72,
+          url: url,
+          status: 'completed',
+        }
+        
+        setSavedAnalyses([newAnalysis, ...savedAnalyses])
+        setSelectedAnalysis(newAnalysis.id)
+        setSaveConfirmation({ show: true, message: '✓ Analysis saved successfully!', type: 'success' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      } else {
+        setSaveConfirmation({ show: true, message: result.error || 'Failed to save analysis', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      }
+    } catch (error) {
+      console.error('[Analysis Save] Error:', error)
+      setSaveConfirmation({ show: true, message: 'Error saving analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const deleteAnalysis = (id: string) => {
-    setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
-    if (selectedAnalysis === id) {
-      setSelectedAnalysis(null)
+  const deleteAnalysis = async (id: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setSaveConfirmation({ show: true, message: 'Please sign in to delete analyses', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        return
+      }
+
+      const response = await fetch('/api/analysis/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ analysisId: id }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
+        if (selectedAnalysis === id) {
+          setSelectedAnalysis(null)
+        }
+        setSaveConfirmation({ show: true, message: '✓ Analysis deleted', type: 'success' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      } else {
+        setSaveConfirmation({ show: true, message: 'Failed to delete analysis', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      }
+    } catch (error) {
+      console.error('[Analysis Delete] Error:', error)
+      setSaveConfirmation({ show: true, message: 'Error deleting analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
     }
   }
 
@@ -809,8 +918,18 @@ export default function AnalysisPage() {
                   >
                     Analyze Another Job
                   </button>
-                  <button className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/50 transition-all" onClick={saveAnalysis}>
-                    Save Analysis
+                  <button className={cn("flex-1 py-3 rounded-xl text-white transition-all flex items-center justify-center gap-2", isSaving ? "bg-white/10 cursor-not-allowed" : "bg-gradient-to-r from-cyan-500 to-blue-600 hover:shadow-lg hover:shadow-cyan-500/50")} onClick={saveAnalysis} disabled={isSaving}>
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Save Analysis
+                      </>
+                    )}
                   </button>
                 </motion.div>
               </motion.div>
@@ -819,6 +938,30 @@ export default function AnalysisPage() {
           </div>
         </div>
       </div>
+
+      {/* Save Confirmation Toast */}
+      <AnimatePresence>
+        {saveConfirmation.show && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
+            className={cn(
+              'fixed top-24 left-1/2 z-50 px-6 py-3 rounded-lg backdrop-blur-xl border font-semibold flex items-center gap-2 transform -translate-x-1/2',
+              saveConfirmation.type === 'success'
+                ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                : 'bg-red-500/20 border-red-500/30 text-red-400'
+            )}
+          >
+            {saveConfirmation.type === 'success' ? (
+              <Check className="w-5 h-5" />
+            ) : (
+              <X className="w-5 h-5" />
+            )}
+            {saveConfirmation.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
