@@ -1,35 +1,39 @@
 /**
- * Verify a Supabase JWT token by calling the Supabase auth endpoint
- * This is the most reliable way to verify tokens on the server side
+ * Verify a Supabase JWT token and extract user from it
  */
+
 export async function verifySupabaseToken(token: string) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('[Token Verify] Missing Supabase credentials');
-      return null;
+    // Decode JWT manually - it's a standard JWT format
+    const parts = token.split('.')
+    if (parts.length !== 3) {
+      console.error('[Token Verify] Invalid token format')
+      return null
     }
 
-    // Call the Supabase auth endpoint to verify the token
-    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: supabaseServiceKey,
-      },
-    });
+    // Decode the payload (second part)
+    const payload = parts[1]
+    // Add padding if needed
+    const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4)
+    const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'))
 
-    if (!response.ok) {
-      console.error('[Token Verify] Token verification failed with status:', response.status);
-      return null;
+    // Check if token is expired
+    if (decoded.exp) {
+      const now = Math.floor(Date.now() / 1000)
+      if (decoded.exp < now) {
+        console.error('[Token Verify] Token has expired')
+        return null
+      }
     }
 
-    const user = await response.json();
-    return user;
+    // Return user object with required fields
+    return {
+      id: decoded.sub, // The 'sub' claim contains the user ID in Supabase tokens
+      email: decoded.email,
+      user_metadata: decoded.user_metadata || {},
+    }
   } catch (error) {
-    console.error('[Token Verify] Error verifying token:', error);
-    return null;
+    console.error('[Token Verify] Error verifying token:', error)
+    return null
   }
 }

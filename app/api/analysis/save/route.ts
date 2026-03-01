@@ -64,19 +64,27 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    // Package the complete analysis data into jobData
+    const completeJobData = {
+      ...jobData,
+      analysisResults: analysisResults || null,
+    }
+
     // Save analysis to database
+    const insertData: any = {
+      user_id: user.id,
+      company_name: company,
+      position_title: position,
+      match_score: score,
+      job_url: url,
+      job_data: completeJobData,
+      created_at: new Date().toISOString(),
+    }
+    // Note: analysis_results column will be used once migration 004 is applied
+
     const { data, error } = await supabase
       .from('user_analyses')
-      .insert({
-        user_id: user.id,
-        company_name: company,
-        position_title: position,
-        match_score: score,
-        job_url: url,
-        job_data: jobData,
-        analysis_results: analysisResults || null,
-        created_at: new Date().toISOString(),
-      })
+      .insert(insertData)
       .select()
 
     if (error) {
