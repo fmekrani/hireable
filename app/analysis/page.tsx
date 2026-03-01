@@ -28,6 +28,7 @@ import {
 import { LimelightNav } from '@/components/ui/limelight-nav-new'
 import { ProfileDropdown } from '@/components/ui/profile-dropdown'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase/client'
 
 // Mock data for previous analyses
 const previousAnalyses = [
@@ -63,19 +64,83 @@ export default function AnalysisPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showResults, setShowResults] = useState(false)
   const [selectedAnalysis, setSelectedAnalysis] = useState<number | null>(null)
+  const [scrapeError, setScrapeError] = useState<string | null>(null)
+  const [rawScrapePayload, setRawScrapePayload] = useState<Record<string, unknown> | null>(null)
+  const [jobData, setJobData] = useState<{
+    job_title: string
+    company_name: string
+    required_skills: string[]
+    preferred_skills: string[]
+    qualities: string[]
+    job_url?: string
+    description?: string
+    years_required?: number | null
+    location?: string | null
+    employment_type?: string | string[] | null
+    tech_stack?: string[]
+    raw_html_length?: number
+    scrape_error?: string | null
+    source?: string
+  } | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!url || !resumeFile) return
     setIsAnalyzing(true)
-    setTimeout(() => {
-      setIsAnalyzing(false)
+    setScrapeError(null)
+    setRawScrapePayload(null)
+
+    try {
+      let accessToken: string | undefined
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        accessToken = session?.access_token
+      } catch (error) {
+        console.warn('[Job Analysis] Failed to read session, continuing without auth:', error)
+      }
+
+      const response = await fetch('/api/job/scrape', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ jobUrl: url }),
+      })
+
+      const payload = await response.json()
+      setRawScrapePayload(payload ?? null)
+
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Job scrape failed')
+      }
+
+      setJobData(payload.job_data ?? payload.job)
       setShowResults(true)
-    }, 2500)
+    } catch (error) {
+      console.error('[Job Analysis] Scrape failed:', error)
+      setScrapeError(error instanceof Error ? error.message : 'Job scrape failed')
+      setJobData(null)
+      setShowResults(true)
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
   const canAnalyze = url.length > 0 && resumeFile !== null
+
+  const matchedSkills = jobData?.required_skills?.length
+    ? jobData.required_skills
+    : mockSkills
+
+  const missingSkills = jobData?.preferred_skills?.length
+    ? jobData.preferred_skills.map((skill) => ({
+        skill,
+        priority: 'medium' as const,
+        resources: 3,
+      }))
+    : mockMissingSkills
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-black to-black/80 text-white overflow-x-hidden">
@@ -317,6 +382,32 @@ export default function AnalysisPage() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-6"
               >
+                  {(scrapeError || rawScrapePayload) && (
+                    <motion.div
+                      whileHover={{ scale: 1.01 }}
+                      className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6"
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-9 h-9 rounded-lg bg-red-500/20 flex items-center justify-center">
+                          <X className="w-4 h-4 text-red-400" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-white">Scrape Debug (Temporary)</h3>
+                          <p className="text-sm text-white/40">Shows the last API response and error</p>
+                        </div>
+                      </div>
+                      {scrapeError && (
+                        <div className="text-sm text-red-300 mb-3">{scrapeError}</div>
+                      )}
+                      {rawScrapePayload && (
+                        <div className="bg-black/40 border border-white/10 rounded-lg p-3 max-h-[260px] overflow-auto">
+                          <pre className="text-xs text-white/80 whitespace-pre-wrap">
+                            {JSON.stringify(rawScrapePayload, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
                 {/* Match Score */}
                 <motion.div
                   whileHover={{ scale: 1.02 }}
@@ -334,6 +425,29 @@ export default function AnalysisPage() {
                   </div>
                 </motion.div>
 
+                {/* Temporary: Parsed Scrape Output */}
+                {jobData && (
+                  <motion.div
+                    whileHover={{ scale: 1.01 }}
+                    className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                        <FileText className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-white text-lg">Parsed Job Data (Temporary)</h3>
+                        <p className="text-sm text-white/40">Raw fields extracted from the scraper</p>
+                      </div>
+                    </div>
+                    <div className="bg-black/40 border border-white/10 rounded-lg p-4 max-h-[420px] overflow-auto">
+                      <pre className="text-xs text-white/80 whitespace-pre-wrap">
+                        {JSON.stringify(jobData, null, 2)}
+                      </pre>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Matched Skills */}
                 <motion.div
                   whileHover={{ scale: 1.02 }}
@@ -344,7 +458,7 @@ export default function AnalysisPage() {
                     <h3 className="text-xl font-semibold text-white">Matched Skills</h3>
                   </div>
                   <div className="grid md:grid-cols-2 gap-3">
-                    {mockSkills.map((skill) => (
+                    {matchedSkills.map((skill) => (
                       <motion.div
                         key={skill}
                         whileHover={{ x: 4 }}
@@ -367,7 +481,7 @@ export default function AnalysisPage() {
                     <h3 className="text-xl font-semibold text-white">Skills to Develop</h3>
                   </div>
                   <div className="space-y-3">
-                    {mockMissingSkills.map((item) => (
+                    {missingSkills.map((item) => (
                       <motion.div
                         key={item.skill}
                         whileHover={{ x: 4 }}
