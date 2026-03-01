@@ -541,17 +541,6 @@ export default function AnalysisPage() {
                       <span className="text-sm text-green-400">Good Fit</span>
                     </div>
                   </div>
-                  
-                  {/* Save Analysis Button */}
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={saveAnalysis}
-                    className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-all duration-300"
-                  >
-                    <Check className="w-4 h-4" />
-                    Save This Analysis
-                  </motion.button>
                 </motion.div>
 
                 {/* Temporary: Parsed Scrape Output */}
@@ -820,7 +809,7 @@ export default function AnalysisPage() {
                   >
                     Analyze Another Job
                   </button>
-                  <button className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/50 transition-all">
+                  <button className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/50 transition-all" onClick={saveAnalysis}>
                     Save Analysis
                   </button>
                 </motion.div>
