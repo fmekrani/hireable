@@ -42,6 +42,17 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Verify the token and get user
+    const user = await verifySupabaseToken(token)
+
+    if (!user) {
+      console.error('[Analysis List API] Failed to verify token')
+      return NextResponse.json(
+        { success: false, error: 'Failed to authenticate user' },
+        { status: 401 }
+      )
+    }
+
     // Create Supabase client with the token in Authorization header
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
@@ -50,17 +61,6 @@ export async function GET(request: NextRequest) {
         },
       },
     })
-
-    // Get user session using the token from Authorization header
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      console.error('[Analysis List API] Auth error:', userError)
-      return NextResponse.json(
-        { success: false, error: 'Failed to authenticate user' },
-        { status: 401 }
-      )
-    }
 
     // Get analyses from database
     const { data, error } = await supabase

@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifySupabaseToken } from '@/lib/supabase/verify-token'
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -50,6 +51,17 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    // Verify the token and get user
+    const user = await verifySupabaseToken(token)
+
+    if (!user) {
+      console.error('[Analysis Delete API] Failed to verify token')
+      return NextResponse.json(
+        { success: false, error: 'Failed to authenticate user' },
+        { status: 401 }
+      )
+    }
+
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: {
@@ -57,17 +69,6 @@ export async function DELETE(request: NextRequest) {
         },
       },
     })
-
-    // Get user session
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      console.error('[Analysis Delete API] Auth error:', userError)
-      return NextResponse.json(
-        { success: false, error: 'Failed to authenticate user' },
-        { status: 401 }
-      )
-    }
 
     // Delete analysis from database
     const { error } = await supabase
