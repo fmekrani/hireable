@@ -9,3 +9,10 @@ export {
   type ProcessResumeResult,
   type ResumeRecord,
 } from './ingestion'
+
+export {
+  extractResumeText as extractResumeTextFromBytes,
+  parseAndPersistResumeById,
+  uploadAndParseResume,
+  type ParsedResumePayload,
+} from './resume-scraper'

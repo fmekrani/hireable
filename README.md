@@ -26,11 +26,24 @@ A modern, AI-powered job readiness analysis platform that helps professionals as
 - **Database**: PostgreSQL (Supabase)
 - **Authentication**: Supabase Auth with JWT
 - **APIs**: RESTful endpoints with OAuth2 support
+- **Resume Parsing**: PDF (via pdf-parse) & DOCX (via mammoth)
+- **Skill Matching**: Shared canonicalization logic with job scraper
 
 ### ML/AI
 - **Model Framework**: TensorFlow 2.20.0
 - **Language**: Python 3.9.6
 - **LLM**: Mistral 7B (via Ollama on localhost:11434)
+
+## 📚 Documentation
+
+### Backend Implementation Guides
+- **[Backend Implementation Guide](./BACKEND_IMPLEMENTATION.md)** - Complete API documentation, database schema, and integration guide (500+ lines)
+- **[API Quick Reference](./API_QUICK_REFERENCE.md)** - Developer quick-start with cURL examples for all 5 endpoints
+- **[Complete File Manifest](./COMPLETE_FILE_MANIFEST.md)** - Detailed checklist of all changes and test results
+- **[Implementation Summary](./IMPLEMENTATION_SUMMARY.md)** - Executive summary and compliance verification
+
+### System Guides
+- **[Resume Parsing README](./RESUME_PARSING_README.md)** - Resume parsing architecture and usage
 
 ## 🚀 Getting Started
 
@@ -221,6 +234,84 @@ python3 scripts/predict.py '{"features": [...]}'
 2. Verify email (or skip if email confirmation is disabled)
 3. Login with credentials
 4. Access `/dashboard` to verify auth middleware
+
+### Integration Test Suite (Resume Scraper)
+
+Full end-to-end testing of resume upload, parsing, and skill matching:
+
+```bash
+# Start dev server first
+npm run dev
+
+# In another terminal, run integration tests
+bash scripts/integration-test-resume.sh
+
+# Test with a specific resume file
+bash scripts/integration-test-resume.sh /path/to/resume.pdf
+
+# Test with custom API endpoint
+BASE_URL=http://localhost:3001 bash scripts/integration-test-resume.sh
+```
+
+The integration test suite checks:
+- ✅ Server health status
+- ✅ Resume upload API availability
+- ✅ Resume extract API (text extraction)
+- ✅ Resume parse API (re-parsing stored resumes)
+- ✅ Job match API (skill overlap calculation)
+- ✅ Skill matching with direct arrays
+- ✅ Error handling and validation
+- ✅ Resume text extraction from actual files
+
+### Manual Resume API Test
+```bash
+# Using the provided test script
+npm run dev:resume-api-test -- /absolute/path/to/resume.pdf
+
+# Or manual curl commands
+curl -X POST http://localhost:3000/api/resume/extract \
+  -F "file=@/path/to/resume.pdf" | jq '.'
+```
+
+## Resume Parsing API
+
+### Upload + Parse + Store
+
+`POST /api/upload/resume` (multipart form-data)
+
+Request fields:
+- `file`: PDF, DOCX, or DOC (max 10MB)
+
+Response shape:
+```json
+{
+  "success": true,
+  "resume_id": "uuid",
+  "resume": {
+    "file_name": "resume.pdf",
+    "skills": ["Node.js", "SQL", "Power BI"]
+  },
+  "resume_data": {
+    "rawText": "...",
+    "skills": ["Node.js", "SQL", "Power BI"],
+    "tech_stack": ["SQL"],
+    "metadata": {
+      "fileType": ".pdf",
+      "wordCount": 512
+    }
+  },
+  "error": null
+}
+```
+
+### Parse Existing Stored Resume
+
+`POST /api/resume/parse` with JSON body:
+```json
+{ "resume_id": "uuid" }
+```
+
+This endpoint verifies ownership, downloads from Supabase Storage bucket `resumes`, extracts full text, normalizes skills using the same canonical logic as job scraping, and stores `raw_text` + `parsed_data`.
 
 ## 🚀 Deployment
 

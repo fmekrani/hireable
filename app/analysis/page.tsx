@@ -100,6 +100,16 @@ export default function AnalysisPage() {
     scrape_error?: string | null
     source?: string
   } | null>(null)
+  const [analysisResults, setAnalysisResults] = useState<{
+    readiness: { score: number; interpretation: string; confidence: number }
+    skillMatch: { matched: string[]; partial: string[]; missing: string[]; matchPercentage: number }
+    experienceGap: { yearsRequired: number; yearsActual: number; gap: number; assessment: string }
+    timeline: Array<{ skill: string; weeks: number; priority: 'high' | 'medium' | 'low' }>
+    recommendations: any[]
+    summary: string
+  } | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
   
@@ -128,15 +138,19 @@ export default function AnalysisPage() {
         console.log('[Analysis] Loaded analyses from database:', result)
         
         if (result.success && result.data) {
-          const formattedAnalyses = result.data.map((analysis: any) => ({
-            id: analysis.id,
-            company: analysis.company_name,
-            position: analysis.position_title,
-            date: new Date(analysis.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            score: analysis.match_score || 72,
-            url: analysis.job_url,
-            status: 'completed' as const,
-          }))
+          const formattedAnalyses = result.data.map((analysis: any) => {
+            // Use analysis results score if available, otherwise use stored match_score
+            const score = analysis.analysis_results?.readiness?.score || analysis.match_score || 72
+            return {
+              id: analysis.id,
+              company: analysis.company_name,
+              position: analysis.position_title,
+              date: new Date(analysis.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              score: score,
+              url: analysis.job_url,
+              status: 'completed' as const,
+            }
+          })
           setSavedAnalyses(formattedAnalyses)
           console.log('[Analysis] Formatted analyses:', formattedAnalyses)
         } else {
@@ -179,9 +193,10 @@ export default function AnalysisPage() {
         body: JSON.stringify({
           company: jobData.company_name || 'Unknown Company',
           position: jobData.job_title || 'Unknown Position',
-          score: 72,
+          score: analysisResults?.readiness.score || 72,
           url: url,
           jobData: jobData,
+          analysisResults: analysisResults,
         }),
       })
 
@@ -195,7 +210,7 @@ export default function AnalysisPage() {
           company: jobData.company_name || 'Unknown Company',
           position: jobData.job_title || 'Unknown Position',
           date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          score: 72,
+          score: analysisResults?.readiness.score || 72,
           url: url,
           status: 'completed',
         }
@@ -242,6 +257,16 @@ export default function AnalysisPage() {
             setSelectedAnalysisData(analysis.job_data)
             setJobData(analysis.job_data)
             setUrl(analysis.job_url)
+            
+            // Load analysis results if they exist
+            if (analysis.analysis_results) {
+              console.log('[Analysis Load] Restoring analysis results')
+              setAnalysisResults(analysis.analysis_results)
+            } else {
+              // If no analysis results stored, set to empty
+              setAnalysisResults(null)
+            }
+            
             setShowResults(true)
             return
           }
@@ -377,6 +402,7 @@ export default function AnalysisPage() {
 
       // Extract text from resume file
       console.log('[Job Analysis] Extracting text from resume:', resumeFile.name)
+      let extractedResume: any = null
       try {
         const resumeFormData = new FormData()
         resumeFormData.append('file', resumeFile)
@@ -393,6 +419,7 @@ export default function AnalysisPage() {
           setResumeText(resumePayload.text)
           if (resumePayload.parsed) {
             setParsedResume(resumePayload.parsed)
+            extractedResume = resumePayload.parsed
           }
         } else {
           setResumeExtractError(resumePayload.error || 'Failed to extract resume text')
@@ -400,6 +427,59 @@ export default function AnalysisPage() {
       } catch (resumeError) {
         console.error('[Job Analysis] Resume extraction failed:', resumeError)
         setResumeExtractError(resumeError instanceof Error ? resumeError.message : 'Resume extraction failed')
+      }
+
+      // Now call analyze endpoint with both resume and job data
+      if (extractedResume && (payload.job_data ?? payload.job)) {
+        setAnalysisLoading(true)
+        setAnalysisError(null)
+        try {
+          const jobDataForAnalysis = payload.job_data ?? payload.job
+          
+          // Transform the extracted resume to match ResumeParsed format expected by analyze endpoint
+          const resumeForAnalysis = {
+            ...extractedResume,
+            // Flatten skills - combine all skill categories into one array
+            skills: extractedResume.skills?.all || extractedResume.skills || [],
+            yearsExperience: extractedResume.yearsExperience || 0,
+            seniority: extractedResume.seniority || 'Mid',
+            domain: extractedResume.domain || 'Full-Stack',
+          }
+
+          // Map the job data to the format expected by the analyze endpoint
+          const jobForAnalysis = {
+            title: jobDataForAnalysis.job_title || 'Unknown Position',
+            requiredSkills: jobDataForAnalysis.required_skills || [],
+            yearsRequired: String(jobDataForAnalysis.years_required || '0'),
+            seniority: 'Mid' as const,
+            domain: 'Full-Stack' as const,
+            description: jobDataForAnalysis.description || '',
+            url: jobDataForAnalysis.job_url || url,
+          }
+
+          const analyzeResponse = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              resume: resumeForAnalysis,
+              job: jobForAnalysis,
+            }),
+          })
+
+          const analyzePayload = await analyzeResponse.json()
+          console.log('[Job Analysis] Analysis result:', analyzePayload.success)
+
+          if (analyzePayload.success && analyzePayload.data) {
+            setAnalysisResults(analyzePayload.data)
+          } else {
+            setAnalysisError(analyzePayload.error || 'Failed to run analysis')
+          }
+        } catch (analyzeError) {
+          console.error('[Job Analysis] Analysis failed:', analyzeError)
+          setAnalysisError(analyzeError instanceof Error ? analyzeError.message : 'Analysis failed')
+        } finally {
+          setAnalysisLoading(false)
+        }
       }
 
       setShowResults(true)
@@ -415,17 +495,21 @@ export default function AnalysisPage() {
 
   const canAnalyze = url.length > 0 && resumeFile !== null
 
-  const matchedSkills = jobData?.required_skills?.length
+  const matchedSkills = analysisResults?.skillMatch.matched || (jobData?.required_skills?.length
     ? jobData.required_skills
-    : mockSkills
+    : mockSkills)
 
-  const missingSkills = jobData?.preferred_skills?.length
+  const missingSkills = analysisResults?.skillMatch.missing.map(skill => ({
+    skill,
+    priority: 'medium' as const,
+    resources: 3,
+  })) || (jobData?.preferred_skills?.length
     ? jobData.preferred_skills.map((skill) => ({
         skill,
         priority: 'medium' as const,
         resources: 3,
       }))
-    : mockMissingSkills
+    : mockMissingSkills)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-black to-black/80 text-white overflow-x-hidden">
@@ -676,32 +760,37 @@ export default function AnalysisPage() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-6"
               >
-                  {(scrapeError || rawScrapePayload) && (
+                  {scrapeError && (
                     <motion.div
-                      whileHover={{ scale: 1.01 }}
-                      className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6"
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-red-500/20 backdrop-blur-xl rounded-2xl border border-red-500/50 p-6 sticky top-32"
                     >
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="w-9 h-9 rounded-lg bg-red-500/20 flex items-center justify-center">
-                          <X className="w-4 h-4 text-red-400" />
-                        </div>
+                      <div className="flex items-center gap-3">
+                        <X className="w-5 h-5 text-red-400 flex-shrink-0" />
                         <div>
-                          <h3 className="font-semibold text-white">Scrape Debug (Temporary)</h3>
-                          <p className="text-sm text-white/40">Shows the last API response and error</p>
+                          <h3 className="font-semibold text-red-200">Job Scraping Failed</h3>
+                          <p className="text-sm text-red-300 mt-1">{scrapeError}</p>
                         </div>
                       </div>
-                      {scrapeError && (
-                        <div className="text-sm text-red-300 mb-3">{scrapeError}</div>
-                      )}
-                      {rawScrapePayload && (
-                        <div className="bg-black/40 border border-white/10 rounded-lg p-3 max-h-[260px] overflow-auto">
-                          <pre className="text-xs text-white/80 whitespace-pre-wrap">
-                            {JSON.stringify(rawScrapePayload, null, 2)}
-                          </pre>
-                        </div>
-                      )}
                     </motion.div>
                   )}
+                {analysisError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-red-500/20 backdrop-blur-xl rounded-2xl border border-red-500/50 p-6"
+                  >
+                    <div className="flex items-center gap-3">
+                      <X className="w-5 h-5 text-red-400 flex-shrink-0" />
+                      <div>
+                        <h3 className="font-semibold text-red-200">Analysis Error</h3>
+                        <p className="text-sm text-red-300 mt-1">{analysisError}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Match Score */}
                 <motion.div
                   whileHover={{ scale: 1.02 }}
@@ -713,230 +802,176 @@ export default function AnalysisPage() {
                       <p className="text-white/60">Based on your resume and the job requirements</p>
                     </div>
                     <div className="text-right">
-                      <div className="text-5xl font-bold text-cyan-400 mb-1">72%</div>
-                      <span className="text-sm text-green-400">Good Fit</span>
+                      {analysisLoading ? (
+                        <div className="flex flex-col items-end gap-2">
+                          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                          <span className="text-sm text-white/40">Analyzing...</span>
+                        </div>
+                      ) : analysisResults ? (
+                        <>
+                          <div className="text-5xl font-bold text-cyan-400 mb-1">{analysisResults.readiness.score}%</div>
+                          <span className={cn(
+                            'text-sm font-semibold',
+                            analysisResults.readiness.score >= 80 ? 'text-green-400' :
+                            analysisResults.readiness.score >= 60 ? 'text-amber-400' :
+                            analysisResults.readiness.score >= 40 ? 'text-orange-400' :
+                            'text-red-400'
+                          )}>
+                            {analysisResults.readiness.interpretation}
+                          </span>
+                        </>
+                      ) : analysisError ? (
+                        <div className="text-right">
+                          <X className="w-6 h-6 text-red-400 mb-2" />
+                          <p className="text-xs text-red-400">Analysis failed</p>
+                        </div>
+                      ) : (
+                        <div className="text-right">
+                          <div className="text-5xl font-bold text-white/40 mb-1">--</div>
+                          <span className="text-sm text-white/40">Pending</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </motion.div>
 
-                {/* Temporary: Parsed Scrape Output */}
-                {jobData && (
+                {/* Resume Parsing Error */}
+                {resumeExtractError && (
                   <motion.div
-                    whileHover={{ scale: 1.01 }}
-                    className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-red-500/10 backdrop-blur-xl rounded-2xl border border-red-500/30 p-6"
                   >
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                        <FileText className="w-5 h-5 text-amber-400" />
-                      </div>
+                    <div className="flex items-center gap-3">
+                      <X className="w-5 h-5 text-red-400 flex-shrink-0" />
                       <div>
-                        <h3 className="font-semibold text-white text-lg">Parsed Job Data (Temporary)</h3>
-                        <p className="text-sm text-white/40">Raw fields extracted from the scraper</p>
+                        <h3 className="font-semibold text-red-200">Resume Parsing Error</h3>
+                        <p className="text-sm text-red-300 mt-1">{resumeExtractError}</p>
                       </div>
                     </div>
-                    <div className="bg-black/40 border border-white/10 rounded-lg p-4 max-h-[420px] overflow-auto">
-                      <pre className="text-xs text-white/80 whitespace-pre-wrap">
-                        {JSON.stringify(jobData, null, 2)}
-                      </pre>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Temporary: Extracted Resume Text */}
-                {(resumeText || resumeExtractError) && (
-                  <motion.div
-                    whileHover={{ scale: 1.01 }}
-                    className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
-                  >
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className={`w-10 h-10 rounded-lg ${resumeExtractError ? 'bg-red-500/20' : 'bg-purple-500/20'} flex items-center justify-center`}>
-                        <Upload className={`w-5 h-5 ${resumeExtractError ? 'text-red-400' : 'text-purple-400'}`} />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-white text-lg">Parsed Resume (Temporary)</h3>
-                        <p className="text-sm text-white/40">
-                          {resumeText ? `${resumeText.length.toLocaleString()} characters extracted` : 'Raw text from your resume'}
-                        </p>
-                      </div>
-                    </div>
-                    {resumeExtractError && (
-                      <div className="text-sm text-red-300 mb-3">{resumeExtractError}</div>
-                    )}
-                    {parsedResume && (
-                      <div className="space-y-4">
-                        {/* Contact Info */}
-                        {parsedResume.contact.name && (
-                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Contact</h4>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                              {parsedResume.contact.name && <div className="text-white"><span className="text-white/50">Name:</span> {parsedResume.contact.name}</div>}
-                              {parsedResume.contact.email && <div className="text-white"><span className="text-white/50">Email:</span> {parsedResume.contact.email}</div>}
-                              {parsedResume.contact.phone && <div className="text-white"><span className="text-white/50">Phone:</span> {parsedResume.contact.phone}</div>}
-                              {parsedResume.contact.location && <div className="text-white"><span className="text-white/50">Location:</span> {parsedResume.contact.location}</div>}
-                              {parsedResume.contact.linkedin && <div className="text-white"><span className="text-white/50">LinkedIn:</span> {parsedResume.contact.linkedin}</div>}
-                              {parsedResume.contact.github && <div className="text-white"><span className="text-white/50">GitHub:</span> {parsedResume.contact.github}</div>}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Summary */}
-                        {parsedResume.summary && (
-                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Summary</h4>
-                            <p className="text-sm text-white/80">{parsedResume.summary}</p>
-                          </div>
-                        )}
-
-                        {/* Skills */}
-                        {parsedResume.skills.all.length > 0 && (
-                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Skills ({parsedResume.skills.all.length})</h4>
-                            <div className="flex flex-wrap gap-2">
-                              {parsedResume.skills.all.slice(0, 20).map((skill, i) => (
-                                <span key={i} className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded-full border border-purple-500/30">{skill}</span>
-                              ))}
-                              {parsedResume.skills.all.length > 20 && (
-                                <span className="px-2 py-1 text-white/40 text-xs">+{parsedResume.skills.all.length - 20} more</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Experience */}
-                        {parsedResume.experience.length > 0 && (
-                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Experience ({parsedResume.experience.length})</h4>
-                            <div className="space-y-3">
-                              {parsedResume.experience.slice(0, 3).map((exp, i) => (
-                                <div key={i} className="border-l-2 border-cyan-500/30 pl-3">
-                                  <div className="text-sm font-medium text-white">{exp.title || 'Role'}</div>
-                                  <div className="text-xs text-white/60">{exp.company} {exp.startDate && `• ${exp.startDate} - ${exp.current ? 'Present' : exp.endDate}`}</div>
-                                  {exp.highlights.length > 0 && (
-                                    <ul className="mt-1 text-xs text-white/50">
-                                      {exp.highlights.slice(0, 2).map((h, j) => <li key={j}>• {h.slice(0, 100)}{h.length > 100 ? '...' : ''}</li>)}
-                                    </ul>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Education */}
-                        {parsedResume.education.length > 0 && (
-                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Education ({parsedResume.education.length})</h4>
-                            <div className="space-y-2">
-                              {parsedResume.education.map((edu, i) => (
-                                <div key={i} className="text-sm">
-                                  <div className="text-white">{edu.degree}</div>
-                                  <div className="text-white/60 text-xs">{edu.institution} {edu.endDate && `• ${edu.endDate}`}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Projects */}
-                        {parsedResume.projects.length > 0 && (
-                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Projects ({parsedResume.projects.length})</h4>
-                            <div className="space-y-2">
-                              {parsedResume.projects.slice(0, 3).map((proj, i) => (
-                                <div key={i}>
-                                  <div className="text-sm text-white">{proj.name}</div>
-                                  {proj.technologies.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                      {proj.technologies.slice(0, 5).map((tech, j) => (
-                                        <span key={j} className="text-xs px-1.5 py-0.5 bg-white/10 text-white/60 rounded">{tech}</span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Certifications */}
-                        {parsedResume.certifications.length > 0 && (
-                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Certifications ({parsedResume.certifications.length})</h4>
-                            <ul className="text-sm text-white/80 space-y-1">
-                              {parsedResume.certifications.map((cert, i) => <li key={i}>• {cert}</li>)}
-                            </ul>
-                          </div>
-                        )}
-
-                        {/* Raw text toggle */}
-                        {resumeText && (
-                          <details className="bg-black/20 rounded-lg border border-white/5">
-                            <summary className="p-3 text-sm text-white/40 cursor-pointer hover:text-white/60">View raw text ({resumeText.length.toLocaleString()} chars)</summary>
-                            <pre className="p-4 text-xs text-white/60 whitespace-pre-wrap max-h-[200px] overflow-auto">{resumeText}</pre>
-                          </details>
-                        )}
-                      </div>
-                    )}
-                    {!parsedResume && resumeText && (
-                      <div className="bg-black/40 border border-white/10 rounded-lg p-4 max-h-[420px] overflow-auto">
-                        <pre className="text-xs text-white/80 whitespace-pre-wrap">
-                          {resumeText}
-                        </pre>
-                      </div>
-                    )}
                   </motion.div>
                 )}
 
                 {/* Matched Skills */}
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3 mb-6">
-                    <Check className="w-6 h-6 text-green-400" />
-                    <h3 className="text-xl font-semibold text-white">Matched Skills</h3>
-                  </div>
-                  <div className="grid md:grid-cols-2 gap-3">
-                    {matchedSkills.map((skill) => (
-                      <motion.div
-                        key={skill}
-                        whileHover={{ x: 4 }}
-                        className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 flex items-center gap-2"
-                      >
-                        <Check className="w-4 h-4 text-green-400" />
-                        <span className="text-white">{skill}</span>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
+                {analysisResults && analysisResults.skillMatch.matched.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-green-500/10 backdrop-blur-xl rounded-2xl border border-green-500/30 p-8"
+                  >
+                    <div className="flex items-center gap-3 mb-6">
+                      <Check className="w-6 h-6 text-green-400" />
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">Matched Skills</h3>
+                        <p className="text-sm text-green-400">{analysisResults.skillMatch.matched.length} of {analysisResults.skillMatch.matched.length + analysisResults.skillMatch.missing.length} required</p>
+                      </div>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      {analysisResults.skillMatch.matched.map((skill) => (
+                        <motion.div
+                          key={skill}
+                          whileHover={{ x: 4 }}
+                          className="bg-green-500/20 border border-green-500/50 rounded-lg px-4 py-3 flex items-center gap-2"
+                        >
+                          <Check className="w-4 h-4 text-green-400" />
+                          <span className="text-white">{skill}</span>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* Missing Skills */}
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3 mb-6">
-                    <Target className="w-6 h-6 text-amber-400" />
-                    <h3 className="text-xl font-semibold text-white">Skills to Develop</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {missingSkills.map((item) => (
-                      <motion.div
-                        key={item.skill}
-                        whileHover={{ x: 4 }}
-                        className="flex items-center justify-between p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg"
-                      >
-                        <div>
-                          <h4 className="text-white font-medium">{item.skill}</h4>
-                          <p className="text-sm text-white/60">Priority: {item.priority}</p>
-                        </div>
-                        <span className="text-sm text-amber-400">{item.resources} resources</span>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
+                {analysisResults && (
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-6">
+                      <Target className="w-6 h-6 text-amber-400" />
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">Skills to Develop</h3>
+                        <p className="text-sm text-white/60">{analysisResults.timeline.length} skill(s) to learn</p>
+                      </div>
+                    </div>
+                    {analysisResults.timeline.length > 0 ? (
+                      <div className="space-y-3">
+                        {analysisResults.timeline.map((item) => (
+                          <motion.div
+                            key={item.skill}
+                            whileHover={{ x: 4 }}
+                            className="flex items-center justify-between p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg"
+                          >
+                            <div>
+                              <h4 className="text-white font-medium">{item.skill}</h4>
+                              <p className="text-sm text-white/60">Priority: {item.priority} • {item.weeks} weeks to learn</p>
+                            </div>
+                            <Clock className="w-5 h-5 text-amber-400" />
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 text-white/60">
+                        No missing skills! You have all required skills for this role.
+                      </div>
+                    )}
+                  </motion.div>
+                )}
 
-                {/* Recommended Resources */}
+                {/* Analysis Summary */}
+                {analysisResults && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-blue-500/10 backdrop-blur-xl rounded-2xl border border-blue-500/30 p-8"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                        <Sparkles className="w-5 h-5 text-blue-400" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-white mb-2">Analysis Summary</h3>
+                        <p className="text-white/80 leading-relaxed whitespace-pre-wrap">{analysisResults.summary}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Experience Gap Analysis */}
+                {analysisResults && (
+                  <motion.div
+                    whileHover={{ scale: 1.01 }}
+                    className="bg-purple-500/10 backdrop-blur-xl rounded-2xl border border-purple-500/30 p-8"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <TrendingUp className="w-6 h-6 text-purple-400" />
+                      <h3 className="text-lg font-semibold text-white">Experience Analysis</h3>
+                    </div>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div className="bg-black/20 rounded-lg p-4">
+                        <p className="text-white/60 text-sm mb-1">Required</p>
+                        <p className="text-2xl font-bold text-purple-400">{analysisResults.experienceGap.yearsRequired} yrs</p>
+                      </div>
+                      <div className="bg-black/20 rounded-lg p-4">
+                        <p className="text-white/60 text-sm mb-1">Your Experience</p>
+                        <p className="text-2xl font-bold text-purple-400">{analysisResults.experienceGap.yearsActual} yrs</p>
+                      </div>
+                      <div className="bg-black/20 rounded-lg p-4">
+                        <p className="text-white/60 text-sm mb-1">Gap</p>
+                        <p className={cn(
+                          'text-2xl font-bold',
+                          analysisResults.experienceGap.gap === 0 ? 'text-green-400' :
+                          analysisResults.experienceGap.gap < 0 ? 'text-orange-400' :
+                          'text-amber-400'
+                        )}>
+                          {analysisResults.experienceGap.gap > 0 ? '+' : ''}{analysisResults.experienceGap.gap.toFixed(1)}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-white/80 mt-4 text-sm">{analysisResults.experienceGap.assessment}</p>
+                  </motion.div>
+                )}
                 <motion.div
                   whileHover={{ scale: 1.02 }}
                   className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
@@ -980,6 +1015,8 @@ export default function AnalysisPage() {
                       setUrl('')
                       setResumeFile(null)
                       setCoverLetterFile(null)
+                      setAnalysisResults(null)
+                      setAnalysisError(null)
                     }}
                     className="flex-1 py-3 rounded-xl border border-white/20 text-white hover:bg-white/10 transition-all"
                   >

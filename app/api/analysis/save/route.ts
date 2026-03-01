@@ -6,10 +6,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifySupabaseToken } from '@/lib/supabase/verify-token'
 
 export async function POST(request: NextRequest) {
   try {
-    const { company, position, score, url, jobData } = await request.json()
+    const { company, position, score, url, jobData, analysisResults } = await request.json()
 
     // Get user from request
     const authHeader = request.headers.get('authorization')
@@ -43,6 +44,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Verify the token and get user
+    const user = await verifySupabaseToken(token)
+
+    if (!user) {
+      console.error('[Analysis Save API] Failed to verify token')
+      return NextResponse.json(
+        { success: false, error: 'Failed to authenticate user' },
+        { status: 401 }
+      )
+    }
+
+    // Create Supabase client for database operations
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: {
@@ -50,17 +63,6 @@ export async function POST(request: NextRequest) {
         },
       },
     })
-
-    // Get user session
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      console.error('[Analysis Save API] Auth error:', userError)
-      return NextResponse.json(
-        { success: false, error: 'Failed to authenticate user' },
-        { status: 401 }
-      )
-    }
 
     // Save analysis to database
     const { data, error } = await supabase
@@ -72,6 +74,7 @@ export async function POST(request: NextRequest) {
         match_score: score,
         job_url: url,
         job_data: jobData,
+        analysis_results: analysisResults || null,
         created_at: new Date().toISOString(),
       })
       .select()
