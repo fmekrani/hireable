@@ -69,6 +69,7 @@ export default function AnalysisPage() {
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [saveConfirmation, setSaveConfirmation] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' })
+  const [selectedAnalysisData, setSelectedAnalysisData] = useState<any | null>(null)
   const [scrapeError, setScrapeError] = useState<string | null>(null)
   const [rawScrapePayload, setRawScrapePayload] = useState<Record<string, unknown> | null>(null)
   const [resumeText, setResumeText] = useState<string | null>(null)
@@ -195,6 +196,16 @@ export default function AnalysisPage() {
         
         setSavedAnalyses([newAnalysis, ...savedAnalyses])
         setSelectedAnalysis(newAnalysis.id)
+        
+        // Also store in localStorage as backup
+        try {
+          const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
+          dataMap[newAnalysis.id] = jobData
+          localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
+        } catch (e) {
+          console.warn('[Analysis Save] Failed to backup to localStorage:', e)
+        }
+        
         setSaveConfirmation({ show: true, message: '✓ Analysis saved successfully!', type: 'success' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       } else {
@@ -217,6 +228,11 @@ export default function AnalysisPage() {
             const saved = JSON.parse(localStorage.getItem('savedAnalyses') || '[]') as SavedAnalysis[]
             saved.unshift(newAnalysis)
             localStorage.setItem('savedAnalyses', JSON.stringify(saved))
+            
+            // Also store the full analysis data
+            const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
+            dataMap[newAnalysis.id] = jobData
+            localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
             
             setSavedAnalyses([newAnalysis, ...savedAnalyses])
             setSelectedAnalysis(newAnalysis.id)
@@ -261,6 +277,54 @@ export default function AnalysisPage() {
       setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const loadSavedAnalysis = async (analysisId: string) => {
+    try {
+      // Try to load from database first
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (session) {
+        const response = await fetch('/api/analysis/list', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        })
+        
+        const result = await response.json()
+        
+        if (result.success && result.data) {
+          const analysis = result.data.find((a: any) => a.id === analysisId)
+          if (analysis) {
+            setSelectedAnalysisData(analysis.job_data)
+            setJobData(analysis.job_data)
+            setUrl(analysis.job_url)
+            setShowResults(true)
+            console.log('[Analysis Load] Loaded from database:', analysis)
+            return
+          }
+        }
+      }
+      
+      // Fallback to localStorage
+      const localAnalyses = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
+      const analysisData = localAnalyses[analysisId]
+      
+      if (analysisData) {
+        setSelectedAnalysisData(analysisData)
+        setJobData(analysisData)
+        setUrl(analysisData.url)
+        setShowResults(true)
+        console.log('[Analysis Load] Loaded from localStorage:', analysisData)
+      } else {
+        setSaveConfirmation({ show: true, message: 'Could not load analysis details', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      }
+    } catch (error) {
+      console.error('[Analysis Load] Error:', error)
+      setSaveConfirmation({ show: true, message: 'Error loading analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
     }
   }
 
@@ -489,7 +553,10 @@ export default function AnalysisPage() {
                     <motion.div
                       key={analysis.id}
                       whileHover={{ x: 4 }}
-                      onClick={() => setSelectedAnalysis(analysis.id)}
+                      onClick={() => {
+                        setSelectedAnalysis(analysis.id)
+                        loadSavedAnalysis(analysis.id)
+                      }}
                       className={cn(
                         'px-6 py-4 cursor-pointer transition-all',
                         selectedAnalysis === analysis.id
