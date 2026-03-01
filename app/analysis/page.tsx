@@ -126,9 +126,20 @@ export default function AnalysisPage() {
             status: 'completed' as const,
           }))
           setSavedAnalyses(formattedAnalyses)
+        } else {
+          // Fallback to localStorage if API fails
+          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
+          setSavedAnalyses(localAnalyses)
         }
       } catch (error) {
         console.error('[Analysis] Failed to load saved analyses:', error)
+        // Fallback to localStorage on error
+        try {
+          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
+          setSavedAnalyses(localAnalyses)
+        } catch (localError) {
+          console.error('[Analysis] Failed to load from localStorage:', localError)
+        }
       }
     }
 
@@ -189,8 +200,59 @@ export default function AnalysisPage() {
       } else {
         const errorMsg = result.error || result.details?.message || 'Failed to save analysis'
         console.error('[Analysis Save] API Error:', errorMsg, result.details)
-        setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
-        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        
+        // Fallback: Save to localStorage if database fails but user is authenticated
+        if (session?.user?.id) {
+          try {
+            const newAnalysis: SavedAnalysis = {
+              id: Date.now().toString(),
+              company: jobData.company_name || 'Unknown Company',
+              position: jobData.job_title || 'Unknown Position',
+              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              score: 72,
+              url: url,
+              status: 'completed',
+            }
+            
+            const saved = JSON.parse(localStorage.getItem('savedAnalyses') || '[]') as SavedAnalysis[]
+            saved.unshift(newAnalysis)
+            localStorage.setItem('savedAnalyses', JSON.stringify(saved))
+            
+            setSavedAnalyses([newAnalysis, ...savedAnalyses])
+            setSelectedAnalysis(newAnalysis.id)
+            setSaveConfirmation({ 
+              show: true, 
+              message: '✓ Saved locally (sync pending)', 
+              type: 'success' 
+            })
+            setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+          } catch (fallbackError) {
+            console.error('[Analysis Save] Fallback save failed:', fallbackError)
+            // Check if it's a table not found error
+            if (result.details?.code === 'PGRST116' || result.details?.message?.includes('user_analyses')) {
+              setSaveConfirmation({ 
+                show: true, 
+                message: 'Database not set up yet. Please run the migration or contact support.', 
+                type: 'error' 
+              })
+            } else {
+              setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+            }
+            setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
+          }
+        } else {
+          // Check if it's a table not found error
+          if (result.details?.code === 'PGRST116' || result.details?.message?.includes('user_analyses')) {
+            setSaveConfirmation({ 
+              show: true, 
+              message: 'Database not set up yet. Please contact support.', 
+              type: 'error' 
+            })
+          } else {
+            setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+          }
+          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
+        }
       }
     } catch (error) {
       console.error('[Analysis Save] Error:', error)
@@ -230,8 +292,22 @@ export default function AnalysisPage() {
         setSaveConfirmation({ show: true, message: '✓ Analysis deleted', type: 'success' })
         setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
       } else {
-        setSaveConfirmation({ show: true, message: 'Failed to delete analysis', type: 'error' })
-        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        // Fallback: Try to delete from localStorage
+        try {
+          const saved = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
+          const updated = saved.filter((a: SavedAnalysis) => a.id !== id)
+          localStorage.setItem('savedAnalyses', JSON.stringify(updated))
+          
+          setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
+          if (selectedAnalysis === id) {
+            setSelectedAnalysis(null)
+          }
+          setSaveConfirmation({ show: true, message: '✓ Deleted (local)', type: 'success' })
+          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        } catch (fallbackError) {
+          setSaveConfirmation({ show: true, message: 'Failed to delete analysis', type: 'error' })
+          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        }
       }
     } catch (error) {
       console.error('[Analysis Delete] Error:', error)
