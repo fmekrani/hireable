@@ -20,8 +20,10 @@ create table if not exists public.resumes (
   user_id uuid not null references public.users(id) on delete cascade,
   file_name text not null,
   file_path text not null,
+  raw_text text,
   parsed_data jsonb,
-  uploaded_at timestamp with time zone default now()
+  uploaded_at timestamp with time zone default now(),
+  parsed_at timestamp with time zone
 );
 
 -- Job searches table

@@ -42,10 +42,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        // Get initial session
+        // Get initial session with timeout
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Session check timeout')), 5000)
+        )
+
         const {
           data: { session: initialSession },
-        } = await supabase.auth.getSession()
+        } = (await Promise.race([sessionPromise, timeoutPromise])) as Awaited<ReturnType<typeof supabase.auth.getSession>>
 
         if (!isMounted || abortController.signal.aborted) return
 
@@ -54,29 +59,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false)
         }
 
-        // Fetch user profile if session exists (non-blocking for UI)
+        // Fetch user profile if session exists (non-blocking for UI with timeout)
         if (initialSession?.user?.id) {
+          const userFetchPromise = supabase
+            .from('users')
+            .select('*')
+            .eq('id', initialSession.user.id)
+            .maybeSingle()
+
+          const userFetchTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Profile fetch timeout')), 3000)
+          )
+
           try {
-            const { data: userData, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', initialSession.user.id)
-              .maybeSingle()
+            const { data: userData, error } = (await Promise.race([
+              userFetchPromise,
+              userFetchTimeout,
+            ])) as Awaited<typeof userFetchPromise>
 
             if (isMounted && !abortController.signal.aborted) {
               if (!error && userData) {
                 setUser(userData)
               } else {
-                if (error) {
-                // Log error for debugging
-                console.error('[Auth] Query error fetching user profile:', {
-                  code: error.code,
-                  message: error.message,
-                  userId: initialSession.user.id,
-                })
-                }
-                // userData can be null if user profile doesn't exist yet - that's OK
-                // Fallback to session user so UI reflects signed-in state.
+                // Fallback to session user so UI reflects signed-in state
                 setUser({
                   id: initialSession.user.id,
                   email: initialSession.user.email ?? '',
@@ -89,12 +94,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           } catch (err) {
             if (abortController.signal.aborted) return
-            console.error('[Auth] Exception fetching user profile:', err)
+            // Profile fetch failed or timed out - use session user instead
+            if (isMounted && !abortController.signal.aborted) {
+              setUser({
+                id: initialSession.user.id,
+                email: initialSession.user.email ?? '',
+                full_name: initialSession.user.user_metadata?.full_name,
+                avatar_url: initialSession.user.user_metadata?.avatar_url,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+            }
           }
         }
       } catch (error) {
         if (abortController.signal.aborted) return
-        console.error('Error initializing auth:', error)
+        // Session check failed or timed out - continue without loading
+        if (isMounted && !abortController.signal.aborted) {
+          setSession(null)
+          setLoading(false)
+        }
       } finally {
         if (isMounted && !abortController.signal.aborted) {
           setLoading(false)
@@ -109,66 +128,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, currentSession) => {
         if (!isMounted || abortController.signal.aborted) return
 
-        console.log('[Auth Context] Auth state changed:', event, 'user:', currentSession?.user?.id)
         setSession(currentSession)
 
         if (event === 'SIGNED_OUT') {
           setUser(null)
         } else if (currentSession?.user?.id) {
           try {
-            console.log('[Auth Context] Fetching user profile for:', currentSession.user.id)
-            const { data: userData, error } = await supabase
+            const userFetchPromise = supabase
               .from('users')
               .select('*')
               .eq('id', currentSession.user.id)
               .maybeSingle()
 
-            console.log('[Auth Context] User fetch result - error:', error?.message, 'userData:', !!userData)
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Timeout')), 2000)
+            )
 
-            if (isMounted && !abortController.signal.aborted) {
-              if (!error && userData) {
-                console.log('[Auth Context] User profile found:', userData.full_name)
-                setUser(userData)
-              } else if (!userData && !error) {
-                // User profile doesn't exist - create it (for OAuth users)
-                try {
-                  console.log('[Auth Context] Creating user profile for OAuth user')
-                  const fullName = currentSession.user.user_metadata?.full_name || 'User'
-                  console.log('[Auth Context] Using full_name:', fullName)
-                  
-                  const { data: newUser, error: insertError } = await supabase
-                    .from('users')
-                    .insert({
-                      id: currentSession.user.id,
-                      email: currentSession.user.email,
-                      full_name: fullName,
-                    })
-                    .select()
-                    .single()
+            try {
+              const { data: userData, error } = (await Promise.race([
+                userFetchPromise,
+                timeoutPromise,
+              ])) as Awaited<typeof userFetchPromise>
 
-                  console.log('[Auth Context] Profile creation result - error:', insertError?.message, 'newUser:', !!newUser)
+              if (isMounted && !abortController.signal.aborted) {
+                if (!error && userData) {
+                  setUser(userData)
+                } else if (!userData && !error) {
+                  // User profile doesn't exist - create it (for OAuth users)
+                  try {
+                    const fullName = currentSession.user.user_metadata?.full_name || 'User'
 
-                  if (isMounted && !abortController.signal.aborted) {
-                    if (newUser && !insertError) {
-                      console.log('[Auth Context] Profile created successfully:', newUser.full_name)
+                    const { data: newUser } = await supabase
+                      .from('users')
+                      .insert({
+                        id: currentSession.user.id,
+                        email: currentSession.user.email,
+                        full_name: fullName,
+                      })
+                      .select()
+                      .single()
+
+                    if (isMounted && !abortController.signal.aborted && newUser) {
                       setUser(newUser)
-                    } else if (insertError) {
-                      console.warn('[Auth] Error creating user profile:', insertError?.message)
+                    } else {
+                      setUser({
+                        id: currentSession.user.id,
+                        email: currentSession.user.email ?? '',
+                        full_name: fullName,
+                        avatar_url: currentSession.user.user_metadata?.avatar_url,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      })
+                    }
+                  } catch {
+                    // Profile creation failed - use session user
+                    if (isMounted && !abortController.signal.aborted) {
+                      setUser({
+                        id: currentSession.user.id,
+                        email: currentSession.user.email ?? '',
+                        full_name: currentSession.user.user_metadata?.full_name,
+                        avatar_url: currentSession.user.user_metadata?.avatar_url,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      })
                     }
                   }
-                } catch (insertErr) {
-                  console.warn('[Auth] Exception creating user profile:', insertErr)
+                } else if (!userData) {
+                  // Fallback to session user
+                  setUser({
+                    id: currentSession.user.id,
+                    email: currentSession.user.email ?? '',
+                    full_name: currentSession.user.user_metadata?.full_name,
+                    avatar_url: currentSession.user.user_metadata?.avatar_url,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  })
                 }
-              } else if (error) {
-                console.error('[Auth] Query error on auth state change:', {
-                  code: error.code,
-                  message: error.message,
-                  event,
-                  userId: currentSession.user.id,
-                })
               }
-
-              if (!userData) {
+            } catch {
+              // Fetch timed out or failed - use session user
+              if (isMounted && !abortController.signal.aborted) {
                 setUser({
                   id: currentSession.user.id,
                   email: currentSession.user.email ?? '',
@@ -179,9 +218,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 })
               }
             }
-          } catch (error) {
-            if (abortController.signal.aborted) return
-            console.error('[Auth] Exception on auth state change:', error)
+          } catch {
+            // General error - use session user
+            if (isMounted && !abortController.signal.aborted) {
+              setUser({
+                id: currentSession.user.id,
+                email: currentSession.user.email ?? '',
+                full_name: currentSession.user.user_metadata?.full_name,
+                avatar_url: currentSession.user.user_metadata?.avatar_url,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+            }
           }
         }
       }

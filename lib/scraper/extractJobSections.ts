@@ -28,17 +28,40 @@ function collectSectionText($: CheerioAPI, heading: Element) {
 export function extractJobSections($: CheerioAPI): JobSections {
   const title = $('h1').first().text().trim() || null
 
-  const mainText = $('main, article, [role="main"]').first().text().trim()
+  // Try multiple ways to get main content
+  let mainText = ''
+  
+  // Try main/article elements first
+  const mainElem = $('main, article, [role="main"]').first().text().trim()
+  if (mainElem && mainElem.length > 500) {
+    mainText = mainElem
+  }
+  
+  // If that didn't work, get content div or container
+  if (!mainText) {
+    const contentDiv = $('[class*="content"], [class*="container"], [class*="job-description"]').first().text().trim()
+    if (contentDiv && contentDiv.length > 500) {
+      mainText = contentDiv
+    }
+  }
+  
+  // Last resort: get most of body but exclude script/style
+  if (!mainText) {
+    const body = $('body').clone()
+    body.find('script, style, nav, footer, [class*="nav"], [class*="header"]').remove()
+    mainText = body.text().trim()
+  }
+
   const description = mainText || $('body').text().trim()
 
   const sections: Record<string, string> = {}
-  $('h2, h3, h4').each((_, el) => {
+  $('h2, h3, h4, h5').each((_, el) => {
     const heading = $(el).text().trim()
-    if (!heading) return
+    if (!heading || heading.length < 3) return
 
     const key = normalizeHeading(heading)
     const body = collectSectionText($, el)
-    if (body) {
+    if (body && body.length > 10) {
       sections[key] = body
     }
   })

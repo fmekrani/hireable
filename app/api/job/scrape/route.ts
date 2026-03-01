@@ -74,11 +74,11 @@ export async function POST(request: NextRequest) {
       ? (await supabase.auth.getUser()).data.user
       : await getServerUser()
 
-    const allowAnonymous = process.env.NODE_ENV !== 'production'
-
-    if (!user && !allowAnonymous) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    // Allow anonymous access for temporary scrape debug endpoint
+    // const allowAnonymous = process.env.NODE_ENV !== 'production'
+    // if (!user && !allowAnonymous) {
+    //   return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    // }
 
     let html = ''
     let finalUrl = jobUrl
@@ -110,13 +110,18 @@ export async function POST(request: NextRequest) {
     appendSection('qualifications', ldJson?.qualifications ?? null)
     appendSection('requirements', ldJson?.skills ?? null)
 
-    const jobTitle = ldJson?.title || title || ''
-    const companyName =
+    const jobTitle = ldJson?.title || title || 'Unknown Position'
+    let companyName =
       ldJson?.hiringOrganization?.name ||
       inferCompanyName($, finalUrl, ldJson?.hiringOrganization?.name || null)
+    
+    // If company name is still empty, try to extract from description or title
+    if (!companyName || companyName.length === 0) {
+      companyName = title?.split(' at ')?.pop()?.trim() || 'Unknown Company'
+    }
 
     const descriptionText =
-      (ldJson?.description ? String(ldJson.description) : '') || description
+      (ldJson?.description ? String(ldJson.description) : '') || description || ''
 
     const skillExtraction = extractSkills({
       description: descriptionText,
@@ -142,20 +147,20 @@ export async function POST(request: NextRequest) {
       job_title: jobTitle,
       company_name: companyName,
       job_url: finalUrl,
-      description: descriptionText,
+      description: descriptionText || 'No description available',
       required_skills: requiredSkills,
       preferred_skills: preferredSkills,
       qualities,
       years_required: yearsRequired,
-      location: resolveLocation(ldJson),
-      employment_type: ldJson?.employmentType ?? null,
+      location: resolveLocation(ldJson) || 'Location not specified',
+      employment_type: ldJson?.employmentType ?? 'Not specified',
       tech_stack: skillExtraction.techStack,
       raw_html_length: html.length,
       scrape_error: scrapeError,
       source: 'job_scrape_v1',
     }
 
-    if (!user && allowAnonymous) {
+    if (!user) {
       return NextResponse.json({
         success: true,
         job_search_id: null,
