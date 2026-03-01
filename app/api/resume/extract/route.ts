@@ -15,6 +15,7 @@ import {
   DEFAULT_EXTRACTOR_CONFIG,
 } from '@/lib/resume/extractors'
 import { parseResume } from '@/lib/resume/parser'
+import { normalizeSkillsFromText, filterTechStack } from '@/lib/skills/canonicalSkills'
 
 export const runtime = 'nodejs'
 
@@ -88,13 +89,10 @@ export async function POST(request: NextRequest) {
 
     // Parse the text into structured sections
     console.log('[Resume Extract API] Parsing resume sections...')
-    console.log('[Resume Extract] Raw text length:', result.text.length)
-    console.log('[Resume Extract] First 500 chars:', result.text.substring(0, 500))
     let parsed
     try {
       parsed = parseResume(result.text)
       console.log(`[Resume Extract API] Parsed: ${parsed.experience.length} experience entries, ${parsed.education.length} education entries, ${parsed.skills.all.length} skills`)
-      console.log('[Resume Extract] Full parsed resume:', JSON.stringify(parsed, null, 2))
     } catch (parseError) {
       console.error('[Resume Extract API] Parsing error:', parseError)
       if (parseError instanceof Error) {
@@ -105,9 +103,14 @@ export async function POST(request: NextRequest) {
       parsed = null
     }
 
+    const skills = normalizeSkillsFromText(result.text)
+    const techStack = filterTechStack(skills)
+
     return NextResponse.json({
       success: true,
       text: result.text,
+      skills,
+      tech_stack: techStack,
       parsed,
       fileName: file.name,
       fileSize: file.size,

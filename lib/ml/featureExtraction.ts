@@ -17,24 +17,42 @@ export type JobOutput = {
 export function extractFeatures(resume: ResumeParsed, job: JobOutput): number[] {
   const features: number[] = [];
 
+  // Normalize skills to array format
+  let resumeSkillsArray: string[] = [];
+  if (Array.isArray(resume.skills)) {
+    resumeSkillsArray = resume.skills;
+  } else if (resume.skills && typeof resume.skills === 'object') {
+    // Handle object format with skill categories
+    if (Array.isArray((resume.skills as any).all)) {
+      resumeSkillsArray = (resume.skills as any).all;
+    } else if (Array.isArray((resume.skills as any).technical)) {
+      resumeSkillsArray = [
+        ...((resume.skills as any).technical || []),
+        ...((resume.skills as any).languages || []),
+        ...((resume.skills as any).frameworks || []),
+        ...((resume.skills as any).tools || []),
+      ];
+    }
+  }
+
   // === RESUME FEATURES (50 features) ===
   
   // 1. Basic resume metrics (5 features)
-  features.push(resume.skills.length); // skillCount
+  features.push(resumeSkillsArray.length); // skillCount
   features.push(resume.yearsExperience); // yearsOfExperience
   features.push(educationLevelToNumber(resume.education)); // educationLevel (0-3)
   features.push(seniorityToNumber(resume.seniority)); // seniority (0-1)
-  features.push(Math.min(resume.skills.length, 10) / 10); // normalized skill diversity
+  features.push(Math.min(resumeSkillsArray.length, 10) / 10); // normalized skill diversity
 
   // 2. Resume skill vector (40 features) - encode which skills are present
-  const resumeSkillVector = createSkillVector(resume.skills);
+  const resumeSkillVector = createSkillVector(resumeSkillsArray);
   features.push(...resumeSkillVector); // 40 features
 
   // 3. Resume quality metrics (5 features)
   const hasEducation = resume.education ? 1 : 0;
   features.push(hasEducation);
   features.push(Math.min(resume.yearsExperience / 20, 1)); // normalized experience (max 20 years)
-  features.push(calculateSkillCoverage(resume.skills)); // skill diversity score
+  features.push(calculateSkillCoverage(resumeSkillsArray)); // skill diversity score
   features.push(seniorityToNumber(resume.seniority)); // seniority normalized (0-1)
   features.push(calculateExperienceTier(resume.yearsExperience)); // experience tier (0-1)
 
@@ -116,7 +134,26 @@ function calculateExperienceTier(years: number): number {
 
 // Helper: Create skill vector from skill list
 // Uses a common tech skill dictionary to encode 40-element vector
-function createSkillVector(skills: string[]): number[] {
+function createSkillVector(skillsInput: any): number[] {
+  // Handle various skill input formats
+  let skills: string[] = [];
+  
+  if (Array.isArray(skillsInput)) {
+    skills = skillsInput;
+  } else if (skillsInput && typeof skillsInput === 'object') {
+    // Handle object format with skill categories
+    if (Array.isArray(skillsInput.all)) {
+      skills = skillsInput.all;
+    } else if (Array.isArray(skillsInput.technical)) {
+      skills = [
+        ...(skillsInput.technical || []),
+        ...(skillsInput.languages || []),
+        ...(skillsInput.frameworks || []),
+        ...(skillsInput.tools || []),
+      ];
+    }
+  }
+  
   // Common tech skills dictionary (40 most common)
   const skillDictionary = [
     'javascript', 'typescript', 'python', 'java', 'c++', 'c#', 'php', 'ruby', 'go', 'rust',
@@ -126,7 +163,10 @@ function createSkillVector(skills: string[]): number[] {
   ];
 
   const vector = new Array(40).fill(0);
-  const normalizedSkills = skills.map(s => s.toLowerCase());
+  const normalizedSkills = (Array.isArray(skills) ? skills : []).map(s => {
+    if (typeof s === 'string') return s.toLowerCase();
+    return '';
+  }).filter(s => s.length > 0);
 
   // Mark which skills are present
   for (let i = 0; i < skillDictionary.length; i++) {

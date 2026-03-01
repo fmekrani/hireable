@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    let user = null
+    let user: { id: string } | null = null
     if (token) {
       const { data: { user: userData } } = await supabase.auth.getUser()
       user = userData
