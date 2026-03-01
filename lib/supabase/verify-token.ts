@@ -1,21 +1,20 @@
 /**
- * Verify a Supabase JWT token by calling the Supabase auth endpoint
- * This is the most reliable way to verify tokens on the server side
+ * Verify a Supabase JWT token and get user from it
  */
 import { createClient } from '@supabase/supabase-js'
 
 export async function verifySupabaseToken(token: string) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-    if (!supabaseUrl || !supabaseServiceKey) {
+    if (!supabaseUrl || !supabaseAnonKey) {
       console.error('[Token Verify] Missing Supabase credentials')
       return null
     }
 
-    // Create Supabase client with service role key and the user's token
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    // Create Supabase client with the user's token
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -23,11 +22,16 @@ export async function verifySupabaseToken(token: string) {
       },
     })
 
-    // Verify the token by getting the user
+    // Get user from the token
     const { data: { user }, error } = await supabase.auth.getUser()
 
-    if (error || !user) {
-      console.error('[Token Verify] Token verification failed:', error?.message)
+    if (error) {
+      console.error('[Token Verify] Failed to get user:', error.message)
+      return null
+    }
+
+    if (!user) {
+      console.error('[Token Verify] No user found in token')
       return null
     }
 
