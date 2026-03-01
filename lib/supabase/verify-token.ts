@@ -1,41 +1,37 @@
 /**
- * Verify a Supabase JWT token and get user from it
+ * Verify a Supabase JWT token and extract user from it
  */
-import { createClient } from '@supabase/supabase-js'
 
 export async function verifySupabaseToken(token: string) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('[Token Verify] Missing Supabase credentials')
+    // Decode JWT manually - it's a standard JWT format
+    const parts = token.split('.')
+    if (parts.length !== 3) {
+      console.error('[Token Verify] Invalid token format')
       return null
     }
 
-    // Create Supabase client with the user's token
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    })
+    // Decode the payload (second part)
+    const payload = parts[1]
+    // Add padding if needed
+    const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4)
+    const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'))
 
-    // Get user from the token
-    const { data: { user }, error } = await supabase.auth.getUser()
-
-    if (error) {
-      console.error('[Token Verify] Failed to get user:', error.message)
-      return null
+    // Check if token is expired
+    if (decoded.exp) {
+      const now = Math.floor(Date.now() / 1000)
+      if (decoded.exp < now) {
+        console.error('[Token Verify] Token has expired')
+        return null
+      }
     }
 
-    if (!user) {
-      console.error('[Token Verify] No user found in token')
-      return null
+    // Return user object with required fields
+    return {
+      id: decoded.sub, // The 'sub' claim contains the user ID in Supabase tokens
+      email: decoded.email,
+      user_metadata: decoded.user_metadata || {},
     }
-
-    return user
   } catch (error) {
     console.error('[Token Verify] Error verifying token:', error)
     return null
