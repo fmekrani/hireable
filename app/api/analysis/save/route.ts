@@ -74,11 +74,7 @@ export async function POST(request: NextRequest) {
       job_data: jobData,
       created_at: new Date().toISOString(),
     }
-
-    // Only include analysis_results if it exists (optional column)
-    if (analysisResults) {
-      insertData.analysis_results = analysisResults
-    }
+    // Note: analysis_results column doesn't exist yet, will be added in migration 004
 
     const { data, error } = await supabase
       .from('user_analyses')
