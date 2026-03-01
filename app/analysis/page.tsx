@@ -66,6 +66,17 @@ export default function AnalysisPage() {
   const [selectedAnalysis, setSelectedAnalysis] = useState<number | null>(null)
   const [scrapeError, setScrapeError] = useState<string | null>(null)
   const [rawScrapePayload, setRawScrapePayload] = useState<Record<string, unknown> | null>(null)
+  const [resumeText, setResumeText] = useState<string | null>(null)
+  const [resumeExtractError, setResumeExtractError] = useState<string | null>(null)
+  const [parsedResume, setParsedResume] = useState<{
+    contact: { name: string | null; email: string | null; phone: string | null; linkedin: string | null; github: string | null; location: string | null }
+    summary: string | null
+    experience: { title: string | null; company: string | null; startDate: string | null; endDate: string | null; current: boolean; highlights: string[] }[]
+    education: { degree: string | null; institution: string | null; startDate: string | null; endDate: string | null; gpa: string | null }[]
+    skills: { technical: string[]; languages: string[]; frameworks: string[]; tools: string[]; all: string[] }
+    certifications: string[]
+    projects: { name: string | null; description: string; technologies: string[]; highlights: string[] }[]
+  } | null>(null)
   const [jobData, setJobData] = useState<{
     job_title: string
     company_name: string
@@ -86,37 +97,111 @@ export default function AnalysisPage() {
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
 
   const handleAnalyze = async () => {
-    if (!url || !resumeFile) return
+    console.log('[Job Analysis] handleAnalyze called, url:', url, 'resumeFile:', resumeFile?.name)
+    if (!url || !resumeFile) {
+      console.warn('[Job Analysis] Missing url or resumeFile, aborting')
+      return
+    }
     setIsAnalyzing(true)
     setScrapeError(null)
     setRawScrapePayload(null)
+    setResumeText(null)
+    setResumeExtractError(null)
+    setParsedResume(null)
 
     try {
       let accessToken: string | undefined
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        accessToken = session?.access_token
+        // Add timeout to prevent hanging
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error('Session timeout')), 3000)
+        )
+        const result = await Promise.race([sessionPromise, timeoutPromise])
+        if (result && 'data' in result) {
+          accessToken = result.data.session?.access_token
+        }
       } catch (error) {
         console.warn('[Job Analysis] Failed to read session, continuing without auth:', error)
       }
 
-      const response = await fetch('/api/job/scrape', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
-        body: JSON.stringify({ jobUrl: url }),
-      })
+      console.log('[Job Analysis] Starting scrape for URL:', url)
+      
+      let response: Response
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+        
+        response = await fetch('/api/job/scrape', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({ jobUrl: url }),
+          signal: controller.signal,
+        })
+        
+        clearTimeout(timeoutId)
+      } catch (fetchError) {
+        console.error('[Job Analysis] Network fetch failed:', fetchError)
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error('Request timeout - the job page took too long to load')
+        }
+        throw new Error(`Network error: ${fetchError instanceof Error ? fetchError.message : 'Failed to reach API'}`)
+      }
 
-      const payload = await response.json()
+      console.log('[Job Analysis] API Response status:', response.status)
+
+      let payload: any
+      try {
+        payload = await response.json()
+      } catch (parseError) {
+        console.error('[Job Analysis] Failed to parse response JSON:', parseError)
+        const text = await response.text()
+        console.error('[Job Analysis] Response text:', text)
+        throw new Error(`Invalid response format: ${parseError instanceof Error ? parseError.message : 'Failed to parse JSON'}`)
+      }
+
       setRawScrapePayload(payload ?? null)
 
-      if (!response.ok || !payload?.success) {
+      if (!response.ok) {
+        throw new Error(payload?.error || `API error: ${response.status} ${response.statusText}`)
+      }
+
+      if (!payload?.success) {
         throw new Error(payload?.error || 'Job scrape failed')
       }
 
       setJobData(payload.job_data ?? payload.job)
+
+      // Extract text from resume file
+      console.log('[Job Analysis] Extracting text from resume:', resumeFile.name)
+      try {
+        const resumeFormData = new FormData()
+        resumeFormData.append('file', resumeFile)
+
+        const resumeResponse = await fetch('/api/resume/extract', {
+          method: 'POST',
+          body: resumeFormData,
+        })
+
+        const resumePayload = await resumeResponse.json()
+        console.log('[Job Analysis] Resume extraction result:', resumePayload.success, resumePayload.text?.length || 0, 'chars')
+
+        if (resumePayload.success && resumePayload.text) {
+          setResumeText(resumePayload.text)
+          if (resumePayload.parsed) {
+            setParsedResume(resumePayload.parsed)
+          }
+        } else {
+          setResumeExtractError(resumePayload.error || 'Failed to extract resume text')
+        }
+      } catch (resumeError) {
+        console.error('[Job Analysis] Resume extraction failed:', resumeError)
+        setResumeExtractError(resumeError instanceof Error ? resumeError.message : 'Resume extraction failed')
+      }
+
       setShowResults(true)
     } catch (error) {
       console.error('[Job Analysis] Scrape failed:', error)
@@ -445,6 +530,151 @@ export default function AnalysisPage() {
                         {JSON.stringify(jobData, null, 2)}
                       </pre>
                     </div>
+                  </motion.div>
+                )}
+
+                {/* Temporary: Extracted Resume Text */}
+                {(resumeText || resumeExtractError) && (
+                  <motion.div
+                    whileHover={{ scale: 1.01 }}
+                    className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`w-10 h-10 rounded-lg ${resumeExtractError ? 'bg-red-500/20' : 'bg-purple-500/20'} flex items-center justify-center`}>
+                        <Upload className={`w-5 h-5 ${resumeExtractError ? 'text-red-400' : 'text-purple-400'}`} />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-white text-lg">Parsed Resume (Temporary)</h3>
+                        <p className="text-sm text-white/40">
+                          {resumeText ? `${resumeText.length.toLocaleString()} characters extracted` : 'Raw text from your resume'}
+                        </p>
+                      </div>
+                    </div>
+                    {resumeExtractError && (
+                      <div className="text-sm text-red-300 mb-3">{resumeExtractError}</div>
+                    )}
+                    {parsedResume && (
+                      <div className="space-y-4">
+                        {/* Contact Info */}
+                        {parsedResume.contact.name && (
+                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Contact</h4>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              {parsedResume.contact.name && <div className="text-white"><span className="text-white/50">Name:</span> {parsedResume.contact.name}</div>}
+                              {parsedResume.contact.email && <div className="text-white"><span className="text-white/50">Email:</span> {parsedResume.contact.email}</div>}
+                              {parsedResume.contact.phone && <div className="text-white"><span className="text-white/50">Phone:</span> {parsedResume.contact.phone}</div>}
+                              {parsedResume.contact.location && <div className="text-white"><span className="text-white/50">Location:</span> {parsedResume.contact.location}</div>}
+                              {parsedResume.contact.linkedin && <div className="text-white"><span className="text-white/50">LinkedIn:</span> {parsedResume.contact.linkedin}</div>}
+                              {parsedResume.contact.github && <div className="text-white"><span className="text-white/50">GitHub:</span> {parsedResume.contact.github}</div>}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Summary */}
+                        {parsedResume.summary && (
+                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Summary</h4>
+                            <p className="text-sm text-white/80">{parsedResume.summary}</p>
+                          </div>
+                        )}
+
+                        {/* Skills */}
+                        {parsedResume.skills.all.length > 0 && (
+                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Skills ({parsedResume.skills.all.length})</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {parsedResume.skills.all.slice(0, 20).map((skill, i) => (
+                                <span key={i} className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded-full border border-purple-500/30">{skill}</span>
+                              ))}
+                              {parsedResume.skills.all.length > 20 && (
+                                <span className="px-2 py-1 text-white/40 text-xs">+{parsedResume.skills.all.length - 20} more</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Experience */}
+                        {parsedResume.experience.length > 0 && (
+                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Experience ({parsedResume.experience.length})</h4>
+                            <div className="space-y-3">
+                              {parsedResume.experience.slice(0, 3).map((exp, i) => (
+                                <div key={i} className="border-l-2 border-cyan-500/30 pl-3">
+                                  <div className="text-sm font-medium text-white">{exp.title || 'Role'}</div>
+                                  <div className="text-xs text-white/60">{exp.company} {exp.startDate && `• ${exp.startDate} - ${exp.current ? 'Present' : exp.endDate}`}</div>
+                                  {exp.highlights.length > 0 && (
+                                    <ul className="mt-1 text-xs text-white/50">
+                                      {exp.highlights.slice(0, 2).map((h, j) => <li key={j}>• {h.slice(0, 100)}{h.length > 100 ? '...' : ''}</li>)}
+                                    </ul>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Education */}
+                        {parsedResume.education.length > 0 && (
+                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Education ({parsedResume.education.length})</h4>
+                            <div className="space-y-2">
+                              {parsedResume.education.map((edu, i) => (
+                                <div key={i} className="text-sm">
+                                  <div className="text-white">{edu.degree}</div>
+                                  <div className="text-white/60 text-xs">{edu.institution} {edu.endDate && `• ${edu.endDate}`}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Projects */}
+                        {parsedResume.projects.length > 0 && (
+                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Projects ({parsedResume.projects.length})</h4>
+                            <div className="space-y-2">
+                              {parsedResume.projects.slice(0, 3).map((proj, i) => (
+                                <div key={i}>
+                                  <div className="text-sm text-white">{proj.name}</div>
+                                  {proj.technologies.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {proj.technologies.slice(0, 5).map((tech, j) => (
+                                        <span key={j} className="text-xs px-1.5 py-0.5 bg-white/10 text-white/60 rounded">{tech}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Certifications */}
+                        {parsedResume.certifications.length > 0 && (
+                          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+                            <h4 className="text-sm font-semibold text-cyan-400 mb-2">Certifications ({parsedResume.certifications.length})</h4>
+                            <ul className="text-sm text-white/80 space-y-1">
+                              {parsedResume.certifications.map((cert, i) => <li key={i}>• {cert}</li>)}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Raw text toggle */}
+                        {resumeText && (
+                          <details className="bg-black/20 rounded-lg border border-white/5">
+                            <summary className="p-3 text-sm text-white/40 cursor-pointer hover:text-white/60">View raw text ({resumeText.length.toLocaleString()} chars)</summary>
+                            <pre className="p-4 text-xs text-white/60 whitespace-pre-wrap max-h-[200px] overflow-auto">{resumeText}</pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                    {!parsedResume && resumeText && (
+                      <div className="bg-black/40 border border-white/10 rounded-lg p-4 max-h-[420px] overflow-auto">
+                        <pre className="text-xs text-white/80 whitespace-pre-wrap">
+                          {resumeText}
+                        </pre>
+                      </div>
+                    )}
                   </motion.div>
                 )}
 
