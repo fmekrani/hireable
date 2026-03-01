@@ -64,17 +64,44 @@ for (const [alias, canonical] of Object.entries(SKILL_ALIASES)) {
   addAlias(alias, canonical)
 }
 
+// Whitelist of actual technical and professional skills to extract
+const SKILL_WHITELIST = new Set([
+  // Programming Languages
+  'SQL', 'Python', 'Java', 'JavaScript', 'TypeScript', 'C++', 'C#', 'Go', 'Rust',
+  'Scala', 'Kotlin', 'PHP', 'Ruby', 'R', 'MATLAB', 'Swift', 'Kotlin',
+  // Databases
+  'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Cassandra', 'Spark', 'BigQuery',
+  // BI/Analytics Tools
+  'Tableau', 'Looker', 'PowerBI', 'Qlik', 'Microstrategy',
+  // Cloud & Infrastructure
+  'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Jenkins',
+  // Data & ML
+  'Machine Learning', 'Deep Learning', 'NLP', 'Data Science', 'Analytics',
+  'Statistics', 'Probability', 'ETL', 'Data Warehouse', 'Data Lakes',
+  // Tools
+  'Excel', 'Git', 'JIRA', 'Confluence', 'Salesforce', 'SAP', 'Oracle',
+  // Frameworks
+  'React', 'Angular', 'Vue', 'Node.js', 'Django', 'Flask', 'Spring',
+  // OS/General
+  'Linux', 'Unix', 'Windows', 'Mac',
+  // Soft Skills/Professional
+  'Project Management', 'Agile', 'Scrum', 'Communication', 'Leadership',
+  'Problem Solving', 'Critical Thinking', 'Teamwork', 'Collaboration',
+  'Data Analysis', 'Visualization', 'Storytelling', 'Presentation'
+])
+
 const aliasMatchers = Array.from(aliasMap.entries()).map(([alias, canonical]) => {
   const escaped = escapeRegex(alias)
-  const regex = new RegExp(`(^|[^A-Za-z0-9])${escaped}([^A-Za-z0-9]|$)`, 'i')
-  return { canonical, regex }
+  const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+  return { canonical, regex, alias }
 })
 
 function collectSkills(text: string): string[] {
   if (!text) return []
   const hits = new Set<string>()
   for (const matcher of aliasMatchers) {
-    if (matcher.regex.test(text)) {
+    // Only match if the canonical name is in the whitelist
+    if (SKILL_WHITELIST.has(matcher.canonical) && matcher.regex.test(text)) {
       hits.add(matcher.canonical)
     }
   }
@@ -100,22 +127,38 @@ export function extractSkills(input: {
   const preferredText = findSectionText(input.sections, PREFERRED_KEYS)
   const qualitiesText = findSectionText(input.sections, QUALITIES_KEYS)
 
-  const hasStructuredSections = Boolean(requiredText || preferredText || qualitiesText)
-  const requiredSources = hasStructuredSections
-    ? [requiredText]
-    : [input.description]
-  const preferredSources = hasStructuredSections
-    ? [preferredText]
-    : []
-  const qualitiesSources = hasStructuredSections
-    ? [qualitiesText]
-    : []
+  // Try structured sections first, but fall back to description if sections are empty
+  const hasGoodSections = Boolean(requiredText && requiredText.length > 50)
+  
+  let requiredSkills: string[] = []
+  let preferredSkills: string[] = []
+  let qualities: string[] = []
 
-  const requiredSkills = collectFromTexts(requiredSources)
-  const preferredSkills = collectFromTexts(preferredSources)
-  const qualities = collectFromTexts(qualitiesSources)
+  // Use structured sections if available
+  if (requiredText && requiredText.length > 20) {
+    requiredSkills = collectFromTexts([requiredText])
+  } 
+  // Fallback: search full description
+  else if (input.description && input.description.length > 100) {
+    requiredSkills = collectFromTexts([input.description])
+  }
 
-  const techStack = requiredSkills.filter((skill) => SKILL_DICTIONARY[skill])
+  if (preferredText && preferredText.length > 20) {
+    preferredSkills = collectFromTexts([preferredText])
+  }
+
+  if (qualitiesText && qualitiesText.length > 20) {
+    qualities = collectFromTexts([qualitiesText])
+  }
+
+  // Tech stack: only real programming languages from required skills
+  const techStack = requiredSkills.filter((skill) => {
+    const lower = skill.toLowerCase()
+    return [
+      'sql', 'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 
+      'go', 'rust', 'scala', 'kotlin', 'r', 'php', 'ruby'
+    ].includes(lower)
+  })
 
   return {
     requiredSkills,
