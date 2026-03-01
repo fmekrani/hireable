@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Link as LinkIcon,
@@ -30,14 +30,6 @@ import { ProfileDropdown } from '@/components/ui/profile-dropdown'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 
-// Mock data for previous analyses
-const previousAnalyses = [
-  { id: 1, company: 'Google', position: 'Senior SWE', date: 'Jan 28', score: 85, status: 'completed' },
-  { id: 2, company: 'Amazon', position: 'SDE II', date: 'Jan 25', score: 72, status: 'completed' },
-  { id: 3, company: 'Meta', position: 'E4 Engineer', date: 'Jan 22', score: 78, status: 'completed' },
-  { id: 4, company: 'Apple', position: 'Software Engineer', date: 'Jan 20', score: 68, status: 'completed' },
-]
-
 const mockSkills = ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'REST APIs', 'Git', 'Agile', 'Testing']
 const mockMissingSkills = [
   { skill: 'System Design', priority: 'high', resources: 3 },
@@ -57,13 +49,27 @@ const navItems = [
   { id: "calendar", icon: <Calendar />, label: "Calendar", href: "/calendar" },
 ]
 
+interface SavedAnalysis {
+  id: string
+  company: string
+  position: string
+  date: string
+  score: number
+  url: string
+  status: 'completed' | 'in-progress'
+}
+
 export default function AnalysisPage() {
   const [url, setUrl] = useState('')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showResults, setShowResults] = useState(false)
-  const [selectedAnalysis, setSelectedAnalysis] = useState<number | null>(null)
+  const [selectedAnalysis, setSelectedAnalysis] = useState<string | null>(null)
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveConfirmation, setSaveConfirmation] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' })
+  const [selectedAnalysisData, setSelectedAnalysisData] = useState<any | null>(null)
   const [scrapeError, setScrapeError] = useState<string | null>(null)
   const [rawScrapePayload, setRawScrapePayload] = useState<Record<string, unknown> | null>(null)
   const [resumeText, setResumeText] = useState<string | null>(null)
@@ -95,6 +101,284 @@ export default function AnalysisPage() {
   } | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
+
+  // Load saved analyses from database on mount
+  useEffect(() => {
+    const loadSavedAnalyses = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return
+
+        const response = await fetch('/api/analysis/list', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        })
+
+        const result = await response.json()
+        if (result.success && result.data) {
+          const formattedAnalyses = result.data.map((analysis: any) => ({
+            id: analysis.id,
+            company: analysis.company_name,
+            position: analysis.position_title,
+            date: new Date(analysis.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            score: analysis.match_score || 72,
+            url: analysis.job_url,
+            status: 'completed' as const,
+          }))
+          setSavedAnalyses(formattedAnalyses)
+        } else {
+          // Fallback to localStorage if API fails
+          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
+          setSavedAnalyses(localAnalyses)
+        }
+      } catch (error) {
+        console.error('[Analysis] Failed to load saved analyses:', error)
+        // Fallback to localStorage on error
+        try {
+          const localAnalyses = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
+          setSavedAnalyses(localAnalyses)
+        } catch (localError) {
+          console.error('[Analysis] Failed to load from localStorage:', localError)
+        }
+      }
+    }
+
+    loadSavedAnalyses()
+  }, [])
+
+  const saveAnalysis = async () => {
+    if (!jobData) return
+    
+    setIsSaving(true)
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        console.log('[Analysis Save] No session found')
+        setSaveConfirmation({ show: true, message: 'Please sign in to save analyses', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        setIsSaving(false)
+        return
+      }
+
+      console.log('[Analysis Save] Starting save, user:', session.user?.id)
+
+      const response = await fetch('/api/analysis/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          company: jobData.company_name || 'Unknown Company',
+          position: jobData.job_title || 'Unknown Position',
+          score: 72,
+          url: url,
+          jobData: jobData,
+        }),
+      })
+
+      console.log('[Analysis Save] API Response status:', response.status)
+      const result = await response.json()
+      console.log('[Analysis Save] API Response:', result)
+
+      if (result.success) {
+        const newAnalysis: SavedAnalysis = {
+          id: result.data?.id || Date.now().toString(),
+          company: jobData.company_name || 'Unknown Company',
+          position: jobData.job_title || 'Unknown Position',
+          date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          score: 72,
+          url: url,
+          status: 'completed',
+        }
+        
+        setSavedAnalyses([newAnalysis, ...savedAnalyses])
+        setSelectedAnalysis(newAnalysis.id)
+        
+        // Also store in localStorage as backup
+        try {
+          const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
+          dataMap[newAnalysis.id] = jobData
+          localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
+        } catch (e) {
+          console.warn('[Analysis Save] Failed to backup to localStorage:', e)
+        }
+        
+        setSaveConfirmation({ show: true, message: '✓ Analysis saved successfully!', type: 'success' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      } else {
+        const errorMsg = result.error || result.details?.message || 'Failed to save analysis'
+        console.error('[Analysis Save] API Error:', errorMsg, result.details)
+        
+        // Fallback: Save to localStorage if database fails but user is authenticated
+        if (session?.user?.id) {
+          try {
+            const newAnalysis: SavedAnalysis = {
+              id: Date.now().toString(),
+              company: jobData.company_name || 'Unknown Company',
+              position: jobData.job_title || 'Unknown Position',
+              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              score: 72,
+              url: url,
+              status: 'completed',
+            }
+            
+            const saved = JSON.parse(localStorage.getItem('savedAnalyses') || '[]') as SavedAnalysis[]
+            saved.unshift(newAnalysis)
+            localStorage.setItem('savedAnalyses', JSON.stringify(saved))
+            
+            // Also store the full analysis data
+            const dataMap = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
+            dataMap[newAnalysis.id] = jobData
+            localStorage.setItem('savedAnalysesData', JSON.stringify(dataMap))
+            
+            setSavedAnalyses([newAnalysis, ...savedAnalyses])
+            setSelectedAnalysis(newAnalysis.id)
+            setSaveConfirmation({ 
+              show: true, 
+              message: '✓ Saved locally (sync pending)', 
+              type: 'success' 
+            })
+            setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+          } catch (fallbackError) {
+            console.error('[Analysis Save] Fallback save failed:', fallbackError)
+            // Check if it's a table not found error
+            if (result.details?.code === 'PGRST116' || result.details?.message?.includes('user_analyses')) {
+              setSaveConfirmation({ 
+                show: true, 
+                message: 'Database not set up yet. Please run the migration or contact support.', 
+                type: 'error' 
+              })
+            } else {
+              setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+            }
+            setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
+          }
+        } else {
+          // Check if it's a table not found error
+          if (result.details?.code === 'PGRST116' || result.details?.message?.includes('user_analyses')) {
+            setSaveConfirmation({ 
+              show: true, 
+              message: 'Database not set up yet. Please contact support.', 
+              type: 'error' 
+            })
+          } else {
+            setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+          }
+          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
+        }
+      }
+    } catch (error) {
+      console.error('[Analysis Save] Error:', error)
+      const errorMsg = error instanceof Error ? error.message : 'Error saving analysis'
+      setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const loadSavedAnalysis = async (analysisId: string) => {
+    try {
+      // Try to load from database first
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (session) {
+        const response = await fetch('/api/analysis/list', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        })
+        
+        const result = await response.json()
+        
+        if (result.success && result.data) {
+          const analysis = result.data.find((a: any) => a.id === analysisId)
+          if (analysis) {
+            setSelectedAnalysisData(analysis.job_data)
+            setJobData(analysis.job_data)
+            setUrl(analysis.job_url)
+            setShowResults(true)
+            console.log('[Analysis Load] Loaded from database:', analysis)
+            return
+          }
+        }
+      }
+      
+      // Fallback to localStorage
+      const localAnalyses = JSON.parse(localStorage.getItem('savedAnalysesData') || '{}')
+      const analysisData = localAnalyses[analysisId]
+      
+      if (analysisData) {
+        setSelectedAnalysisData(analysisData)
+        setJobData(analysisData)
+        setUrl(analysisData.url)
+        setShowResults(true)
+        console.log('[Analysis Load] Loaded from localStorage:', analysisData)
+      } else {
+        setSaveConfirmation({ show: true, message: 'Could not load analysis details', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      }
+    } catch (error) {
+      console.error('[Analysis Load] Error:', error)
+      setSaveConfirmation({ show: true, message: 'Error loading analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    }
+  }
+
+  const deleteAnalysis = async (id: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setSaveConfirmation({ show: true, message: 'Please sign in to delete analyses', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        return
+      }
+
+      const response = await fetch('/api/analysis/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ analysisId: id }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
+        if (selectedAnalysis === id) {
+          setSelectedAnalysis(null)
+        }
+        setSaveConfirmation({ show: true, message: '✓ Analysis deleted', type: 'success' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      } else {
+        // Fallback: Try to delete from localStorage
+        try {
+          const saved = JSON.parse(localStorage.getItem('savedAnalyses') || '[]')
+          const updated = saved.filter((a: SavedAnalysis) => a.id !== id)
+          localStorage.setItem('savedAnalyses', JSON.stringify(updated))
+          
+          setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
+          if (selectedAnalysis === id) {
+            setSelectedAnalysis(null)
+          }
+          setSaveConfirmation({ show: true, message: '✓ Deleted (local)', type: 'success' })
+          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        } catch (fallbackError) {
+          setSaveConfirmation({ show: true, message: 'Failed to delete analysis', type: 'error' })
+          setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        }
+      }
+    } catch (error) {
+      console.error('[Analysis Delete] Error:', error)
+      setSaveConfirmation({ show: true, message: 'Error deleting analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    }
+  }
 
   const handleAnalyze = async () => {
     console.log('[Job Analysis] handleAnalyze called, url:', url, 'resumeFile:', resumeFile?.name)
@@ -256,50 +540,59 @@ export default function AnalysisPage() {
               <div className="bg-gradient-to-r from-cyan-500/20 to-blue-600/20 px-6 py-4 border-b border-white/10">
                 <h3 className="font-semibold text-white flex items-center gap-2">
                   <History className="w-4 h-4" />
-                  Previous Analyses
+                  {savedAnalyses.length > 0 ? 'Saved Analyses' : 'No Analyses'}
                 </h3>
               </div>
               <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto">
-                {previousAnalyses.map((analysis) => (
-                  <motion.div
-                    key={analysis.id}
-                    whileHover={{ x: 4 }}
-                    onClick={() => setSelectedAnalysis(analysis.id)}
-                    className={cn(
-                      'px-6 py-4 cursor-pointer transition-all',
-                      selectedAnalysis === analysis.id
-                        ? 'bg-cyan-500/20 border-l-2 border-cyan-500'
-                        : 'hover:bg-white/5'
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <h4 className="text-sm font-semibold text-white truncate">{analysis.company}</h4>
-                        <p className="text-xs text-white/60 truncate">{analysis.position}</p>
+                {savedAnalyses.length === 0 ? (
+                  <div className="px-6 py-8 text-center">
+                    <p className="text-xs text-white/40">Run an analysis and save it to see it here</p>
+                  </div>
+                ) : (
+                  savedAnalyses.map((analysis) => (
+                    <motion.div
+                      key={analysis.id}
+                      whileHover={{ x: 4 }}
+                      onClick={() => {
+                        setSelectedAnalysis(analysis.id)
+                        loadSavedAnalysis(analysis.id)
+                      }}
+                      className={cn(
+                        'px-6 py-4 cursor-pointer transition-all',
+                        selectedAnalysis === analysis.id
+                          ? 'bg-cyan-500/20 border-l-2 border-cyan-500'
+                          : 'hover:bg-white/5'
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <h4 className="text-sm font-semibold text-white truncate">{analysis.company}</h4>
+                          <p className="text-xs text-white/60 truncate">{analysis.position}</p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteAnalysis(analysis.id)
+                          }}
+                          className="text-white/40 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          // Delete handler
-                        }}
-                        className="text-white/40 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-white/50">{analysis.date}</span>
-                      <div className={cn(
-                        'text-xs font-bold px-2 py-1 rounded',
-                        analysis.score >= 80 ? 'bg-green-500/20 text-green-400' :
-                        analysis.score >= 70 ? 'bg-amber-500/20 text-amber-400' :
-                        'bg-red-500/20 text-red-400'
-                      )}>
-                        {analysis.score}%
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-white/50">{analysis.date}</span>
+                        <div className={cn(
+                          'text-xs font-bold px-2 py-1 rounded',
+                          analysis.score >= 80 ? 'bg-green-500/20 text-green-400' :
+                          analysis.score >= 70 ? 'bg-amber-500/20 text-amber-400' :
+                          'bg-red-500/20 text-red-400'
+                        )}>
+                          {analysis.score}%
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  ))
+                )}
               </div>
             </div>
           </motion.div>
@@ -498,7 +791,7 @@ export default function AnalysisPage() {
                   whileHover={{ scale: 1.02 }}
                   className="bg-gradient-to-br from-cyan-500/20 to-blue-600/20 backdrop-blur-xl rounded-2xl border border-cyan-500/30 p-8 hover:border-cyan-500/50 transition-all duration-300"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-6">
                     <div>
                       <h3 className="text-lg font-semibold text-white mb-2">Overall Match Score</h3>
                       <p className="text-white/60">Based on your resume and the job requirements</p>
@@ -776,8 +1069,18 @@ export default function AnalysisPage() {
                   >
                     Analyze Another Job
                   </button>
-                  <button className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/50 transition-all">
-                    Save Analysis
+                  <button className={cn("flex-1 py-3 rounded-xl text-white transition-all flex items-center justify-center gap-2", isSaving ? "bg-white/10 cursor-not-allowed" : "bg-gradient-to-r from-cyan-500 to-blue-600 hover:shadow-lg hover:shadow-cyan-500/50")} onClick={saveAnalysis} disabled={isSaving}>
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Save Analysis
+                      </>
+                    )}
                   </button>
                 </motion.div>
               </motion.div>
@@ -786,6 +1089,30 @@ export default function AnalysisPage() {
           </div>
         </div>
       </div>
+
+      {/* Save Confirmation Toast */}
+      <AnimatePresence>
+        {saveConfirmation.show && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
+            className={cn(
+              'fixed top-24 left-1/2 z-50 px-6 py-3 rounded-lg backdrop-blur-xl border font-semibold flex items-center gap-2 transform -translate-x-1/2',
+              saveConfirmation.type === 'success'
+                ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                : 'bg-red-500/20 border-red-500/30 text-red-400'
+            )}
+          >
+            {saveConfirmation.type === 'success' ? (
+              <Check className="w-5 h-5" />
+            ) : (
+              <X className="w-5 h-5" />
+            )}
+            {saveConfirmation.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
