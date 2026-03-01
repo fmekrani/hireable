@@ -42,59 +42,81 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        // Get initial session
-        const {
-          data: { session: initialSession },
-        } = await supabase.auth.getSession()
+        // Add a timeout to prevent blocking (3 seconds max)
+        const sessionPromise = supabase.auth.getSession().catch((err: any) => {
+          console.warn('[Auth] getSession failed:', err?.message)
+          return { data: { session: null }, error: err }
+        })
+        const timeoutPromise = new Promise((resolve) =>
+          setTimeout(() => resolve({ data: { session: null }, error: new Error('Auth session timeout') }), 3000)
+        )
 
-        if (!isMounted || abortController.signal.aborted) return
+        try {
+          const result = await Promise.race([sessionPromise, timeoutPromise]) as any
+          const initialSession = result?.data?.session || null
 
-        setSession(initialSession)
-        if (isMounted && !abortController.signal.aborted) {
-          setLoading(false)
-        }
+          if (!isMounted || abortController.signal.aborted) return
 
-        // Fetch user profile if session exists (non-blocking for UI)
-        if (initialSession?.user?.id) {
-          try {
-            const { data: userData, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', initialSession.user.id)
-              .maybeSingle()
-
-            if (isMounted && !abortController.signal.aborted) {
-              if (!error && userData) {
-                setUser(userData)
-              } else {
-                if (error) {
-                // Log error for debugging
-                console.error('[Auth] Query error fetching user profile:', {
-                  code: error.code,
-                  message: error.message,
-                  userId: initialSession.user.id,
-                })
-                }
-                // userData can be null if user profile doesn't exist yet - that's OK
-                // Fallback to session user so UI reflects signed-in state.
-                setUser({
-                  id: initialSession.user.id,
-                  email: initialSession.user.email ?? '',
-                  full_name: initialSession.user.user_metadata?.full_name,
-                  avatar_url: initialSession.user.user_metadata?.avatar_url,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                })
-              }
-            }
-          } catch (err) {
-            if (abortController.signal.aborted) return
-            console.error('[Auth] Exception fetching user profile:', err)
+          setSession(initialSession)
+          if (isMounted && !abortController.signal.aborted) {
+            setLoading(false)
           }
+
+          // Fetch user profile if session exists (non-blocking for UI)
+          if (initialSession?.user?.id) {
+            try {
+              const userQuery = supabase
+                .from('users')
+                .select('*')
+                .eq('id', initialSession.user.id)
+                .maybeSingle()
+                .catch((err: any) => {
+                  console.warn('[Auth] User query failed:', err?.message)
+                  return { data: null, error: err }
+                })
+
+              const { data: userData, error } = await userQuery
+
+              if (isMounted && !abortController.signal.aborted) {
+                if (!error && userData) {
+                  setUser(userData)
+                } else {
+                  if (error) {
+                    // Log error for debugging
+                    console.warn('[Auth] Query error fetching user profile:', {
+                      code: error?.code,
+                      message: error?.message,
+                      userId: initialSession.user.id,
+                    })
+                  }
+                  // userData can be null if user profile doesn't exist yet - that's OK
+                  // Fallback to session user so UI reflects signed-in state.
+                  setUser({
+                    id: initialSession.user.id,
+                    email: initialSession.user.email ?? '',
+                    full_name: initialSession.user.user_metadata?.full_name,
+                    avatar_url: initialSession.user.user_metadata?.avatar_url,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  })
+                }
+              }
+            } catch (err) {
+              if (abortController.signal.aborted) return
+              console.warn('[Auth] Exception fetching user profile:', err)
+            }
+          }
+        } catch (sessionError) {
+          if (abortController.signal.aborted) return
+          // Session check failed or timed out, continue without auth
+          console.warn('[Auth] Session check failed/timed out:', sessionError)
+          setSession(null)
+          setLoading(false)
         }
       } catch (error) {
         if (abortController.signal.aborted) return
         console.error('Error initializing auth:', error)
+        setLoading(false)
       } finally {
         if (isMounted && !abortController.signal.aborted) {
           setLoading(false)
@@ -105,92 +127,106 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth()
 
     // Listen for auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, currentSession) => {
-        if (!isMounted || abortController.signal.aborted) return
+    let authListener: any = null
+    try {
+      const result = supabase.auth.onAuthStateChange(
+        async (event, currentSession) => {
+          if (!isMounted || abortController.signal.aborted) return
 
-        console.log('[Auth Context] Auth state changed:', event, 'user:', currentSession?.user?.id)
-        setSession(currentSession)
-
-        if (event === 'SIGNED_OUT') {
-          setUser(null)
-        } else if (currentSession?.user?.id) {
           try {
-            console.log('[Auth Context] Fetching user profile for:', currentSession.user.id)
-            const { data: userData, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', currentSession.user.id)
-              .maybeSingle()
+            console.log('[Auth Context] Auth state changed:', event, 'user:', currentSession?.user?.id)
+            setSession(currentSession)
 
-            console.log('[Auth Context] User fetch result - error:', error?.message, 'userData:', !!userData)
+            if (event === 'SIGNED_OUT') {
+              setUser(null)
+            } else if (currentSession?.user?.id) {
+              console.log('[Auth Context] Fetching user profile for:', currentSession.user.id)
+              
+              try {
+                const { data: userData, error } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('id', currentSession.user.id)
+                  .maybeSingle()
 
-            if (isMounted && !abortController.signal.aborted) {
-              if (!error && userData) {
-                console.log('[Auth Context] User profile found:', userData.full_name)
-                setUser(userData)
-              } else if (!userData && !error) {
-                // User profile doesn't exist - create it (for OAuth users)
-                try {
-                  console.log('[Auth Context] Creating user profile for OAuth user')
-                  const fullName = currentSession.user.user_metadata?.full_name || 'User'
-                  console.log('[Auth Context] Using full_name:', fullName)
-                  
-                  const { data: newUser, error: insertError } = await supabase
-                    .from('users')
-                    .insert({
-                      id: currentSession.user.id,
-                      email: currentSession.user.email,
-                      full_name: fullName,
-                    })
-                    .select()
-                    .single()
+                console.log('[Auth Context] User fetch result - error:', error?.message, 'userData:', !!userData)
 
-                  console.log('[Auth Context] Profile creation result - error:', insertError?.message, 'newUser:', !!newUser)
+                if (isMounted && !abortController.signal.aborted) {
+                  if (!error && userData) {
+                    console.log('[Auth Context] User profile found:', userData.full_name)
+                    setUser(userData)
+                  } else if (!userData && !error) {
+                    // User profile doesn't exist - create it (for OAuth users)
+                    try {
+                      console.log('[Auth Context] Creating user profile for OAuth user')
+                      const fullName = currentSession.user.user_metadata?.full_name || 'User'
+                      
+                      const { data: newUser, error: insertError } = await supabase
+                        .from('users')
+                        .insert({
+                          id: currentSession.user.id,
+                          email: currentSession.user.email,
+                          full_name: fullName,
+                        })
+                        .select()
+                        .single()
 
-                  if (isMounted && !abortController.signal.aborted) {
-                    if (newUser && !insertError) {
-                      console.log('[Auth Context] Profile created successfully:', newUser.full_name)
-                      setUser(newUser)
-                    } else if (insertError) {
-                      console.warn('[Auth] Error creating user profile:', insertError?.message)
+                      if (isMounted && !abortController.signal.aborted) {
+                        if (newUser && !insertError) {
+                          console.log('[Auth Context] Profile created successfully:', newUser.full_name)
+                          setUser(newUser)
+                        } else if (insertError) {
+                          console.warn('[Auth] Error creating user profile:', insertError?.message)
+                        }
+                      }
+                    } catch (insertErr) {
+                      console.warn('[Auth] Exception creating user profile:', insertErr)
                     }
+                  } else if (error) {
+                    console.warn('[Auth] Query error on auth state change:', error?.message)
                   }
-                } catch (insertErr) {
-                  console.warn('[Auth] Exception creating user profile:', insertErr)
-                }
-              } else if (error) {
-                console.error('[Auth] Query error on auth state change:', {
-                  code: error.code,
-                  message: error.message,
-                  event,
-                  userId: currentSession.user.id,
-                })
-              }
 
-              if (!userData) {
-                setUser({
-                  id: currentSession.user.id,
-                  email: currentSession.user.email ?? '',
-                  full_name: currentSession.user.user_metadata?.full_name,
-                  avatar_url: currentSession.user.user_metadata?.avatar_url,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                })
+                  // Fallback: use session user data if no profile found
+                  if (!userData) {
+                    setUser({
+                      id: currentSession.user.id,
+                      email: currentSession.user.email ?? '',
+                      full_name: currentSession.user.user_metadata?.full_name,
+                      avatar_url: currentSession.user.user_metadata?.avatar_url,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    })
+                  }
+                }
+              } catch (queryErr) {
+                console.warn('[Auth] Exception fetching user profile:', queryErr)
+                // Fallback to session user
+                if (isMounted && !abortController.signal.aborted) {
+                  setUser({
+                    id: currentSession.user.id,
+                    email: currentSession.user.email ?? '',
+                    full_name: currentSession.user.user_metadata?.full_name,
+                    avatar_url: currentSession.user.user_metadata?.avatar_url,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  })
+                }
               }
             }
-          } catch (error) {
-            if (abortController.signal.aborted) return
-            console.error('[Auth] Exception on auth state change:', error)
+          } catch (err) {
+            console.warn('[Auth] Error in auth state change handler:', err)
           }
         }
-      }
-    )
+      )
+      authListener = result?.data
+    } catch (err) {
+      console.warn('[Auth] Failed to setup auth listener:', err)
+    }
 
     return () => {
       isMounted = false
       abortController.abort()
-      authListener?.subscription.unsubscribe()
+      authListener?.subscription?.unsubscribe()
     }
   }, [])
 
@@ -240,12 +276,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!hasSupabaseAuth) {
       throw new Error('Supabase client is not configured')
     }
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    
+    try {
+      console.log('[Auth] Attempting sign in for:', email)
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    if (error) throw error
+      if (error) {
+        console.error('[Auth] Sign in error:', error)
+        throw new Error(`Sign in failed: ${error.message}`)
+      }
+      console.log('[Auth] Sign in successful for:', email)
+    } catch (err) {
+      console.error('[Auth] Sign in exception:', err)
+      throw err
+    }
   }
 
   const signOut = async () => {
@@ -260,14 +307,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!hasSupabaseAuth) {
       throw new Error('Supabase client is not configured')
     }
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    
+    try {
+      console.log('[Auth] Attempting OAuth sign in with:', provider)
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
 
-    if (error) throw error
+      if (error) {
+        console.error('[Auth] OAuth error:', error)
+        throw new Error(`OAuth sign in failed: ${error.message}`)
+      }
+      console.log('[Auth] OAuth initiated for:', provider)
+    } catch (err) {
+      console.error('[Auth] OAuth exception:', err)
+      throw err
+    }
   }
 
   return (

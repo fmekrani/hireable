@@ -13,6 +13,7 @@ export type Resume = {
   user_id: string
   file_name: string
   file_path: string
+  raw_text?: string | null
   parsed_data?: any
   uploaded_at: string
 }

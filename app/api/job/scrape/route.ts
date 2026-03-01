@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { load } from 'cheerio'
 import { createClient } from '@supabase/supabase-js'
-import { createServerSupabaseClient, getServerUser } from '@/lib/supabase/server'
 import { fetchHtml } from '@/lib/scraper/fetchHtml'
 import { parseLdJson } from '@/lib/scraper/parseLdJson'
 import { extractJobSections } from '@/lib/scraper/extractJobSections'
 import { extractSkills } from '@/lib/scraper/extractSkills'
 import { inferCompanyName } from '@/lib/scraper/inferCompanyName'
+
+export const runtime = 'nodejs'
+
+// Health check
+export async function GET() {
+  return NextResponse.json({ ok: true, message: 'Job scrape API is ready' })
+}
 
 interface ScrapeRequestBody {
   jobUrl?: string
@@ -44,12 +50,25 @@ export async function POST(request: NextRequest) {
   let jobUrl = ''
 
   try {
-    const body = (await request.json()) as ScrapeRequestBody
+    // Add request logging
+    console.log('[Job Scrape] Incoming request')
+
+    let body: ScrapeRequestBody
+    try {
+      body = (await request.json()) as ScrapeRequestBody
+    } catch (parseError) {
+      console.error('[Job Scrape] Failed to parse request body:', parseError)
+      return NextResponse.json(
+        { success: false, error: 'Invalid request body' },
+        { status: 400 }
+      )
+    }
+
     jobUrl = body?.jobUrl?.trim() ?? ''
 
     if (!jobUrl || !isValidUrl(jobUrl)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid jobUrl' },
+        { success: false, error: 'Invalid jobUrl provided' },
         { status: 400 }
       )
     }
@@ -60,19 +79,20 @@ export async function POST(request: NextRequest) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 
-    const supabase = token && supabaseUrl && supabaseAnonKey
-      ? createClient(supabaseUrl, supabaseAnonKey, {
-          global: {
-            headers: {
-              authorization: `Bearer ${token}`,
-            },
-          },
-        })
-      : await createServerSupabaseClient()
+    // Create Supabase client directly without using 'use server' function
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+      },
+    })
 
-    const user = token
-      ? (await supabase.auth.getUser()).data.user
-      : await getServerUser()
+    let user = null
+    if (token) {
+      const { data: { user: userData } } = await supabase.auth.getUser()
+      user = userData
+    }
 
     const allowAnonymous = process.env.NODE_ENV !== 'production'
 
@@ -84,12 +104,15 @@ export async function POST(request: NextRequest) {
     let finalUrl = jobUrl
     let scrapeError: string | null = null
 
+    console.log('[Job Scrape] Attempting to fetch HTML from:', jobUrl)
     try {
       const result = await fetchHtml(jobUrl)
       html = result.html
       finalUrl = result.finalUrl
+      console.log('[Job Scrape] Successfully fetched HTML, length:', html.length)
     } catch (error) {
       scrapeError = error instanceof Error ? error.message : String(error)
+      console.error('[Job Scrape] Failed to fetch HTML:', scrapeError)
     }
 
     const $ = html ? load(html) : load('<html></html>')
@@ -219,11 +242,15 @@ export async function POST(request: NextRequest) {
       job_data: jobData,
     })
   } catch (error) {
-    console.error('[Job Scrape] Error:', error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('[Job Scrape] Unexpected error:', errorMessage)
+    console.error('[Job Scrape] Error stack:', error instanceof Error ? error.stack : 'N/A')
+    console.error('[Job Scrape] Job URL was:', jobUrl)
+    
     return NextResponse.json(
       {
         success: false,
-        error: 'Unexpected error during job scrape',
+        error: `Server error: ${errorMessage}`,
         job: {
           job_title: '',
           company_name: '',

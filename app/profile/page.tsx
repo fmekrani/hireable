@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { LimelightNav } from "@/components/ui/limelight-nav-new"
 import { User, Mail, MapPin, Briefcase, Settings, LogOut, Edit2, Home, BarChart3, Video, Calendar } from "lucide-react"
@@ -8,6 +9,8 @@ import { useAuth } from "@/lib/supabase/auth-context"
 
 export default function ProfilePage() {
   const { session, user, loading } = useAuth()
+  const [showContent, setShowContent] = useState(false)
+  
   const navItems = [
     { id: "home", icon: <Home />, label: "Home", href: "/" },
     { id: "analysis", icon: <BarChart3 />, label: "Analysis", href: "/analysis" },
@@ -16,7 +19,20 @@ export default function ProfilePage() {
     { id: "profile", icon: <User />, label: "Profile", href: "/profile" },
   ]
 
-  if (loading) {
+  // Add a timeout to prevent infinite loading
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowContent(true)
+    }, 3000) // Show content after 3 seconds regardless
+    
+    if (!loading) {
+      setShowContent(true)
+    }
+    
+    return () => clearTimeout(timer)
+  }, [loading])
+
+  if (loading && !showContent) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="w-10 h-10 rounded-full bg-white/10 animate-pulse" />
