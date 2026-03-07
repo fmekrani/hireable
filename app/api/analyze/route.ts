@@ -84,17 +84,59 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalysisR
       predictions = JSON.parse(stdout);
     } catch (pythonError: any) {
       console.error('Python prediction error:', pythonError);
-      return NextResponse.json(
-        { success: false, error: 'Failed to run model predictions' },
-        { status: 500 }
+      
+      // FALLBACK: Calculate predictions directly from features without TensorFlow
+      // Features structure: [skillCount, yearsExp, eduLevel, seniority, skillDiversity, skillVector(40), hasEdu, normedExp, skillCov, seniority, expTier, reqSkillCount, reqYears, ...]
+      const skillCount = features[0];
+      const yearsExperience = features[1];
+      const requiredSkillCount = features[50]; // After resume features
+      const requiredYears = features[51];
+      
+      // Calculate skill match percentage based on actual skill overlap
+      const { matched: matchedSkills, missing: missingSkills } = calculateSkillMatch(
+        Array.isArray(resume.skills) ? resume.skills : (resume.skills as any)?.all || [],
+        job.requiredSkills
       );
+      const skillMatchPercentage = job.requiredSkills.length > 0 
+        ? matchedSkills.length / job.requiredSkills.length 
+        : 0.5;
+      
+      // Calculate experience match (0-1)
+      let experienceMatch = 0;
+      if (requiredYears > 0) {
+        experienceMatch = Math.min(yearsExperience / requiredYears, 1.2);
+      } else {
+        experienceMatch = yearsExperience > 0 ? 0.9 : 0.5;
+      }
+      
+      // Weighted readiness score
+      // 60% skill match, 40% experience match
+      const readinessScore = (skillMatchPercentage * 0.6 + Math.min(experienceMatch, 1.0) * 0.4);
+      
+      predictions = {
+        readiness: Math.min(1.0, Math.max(0.0, readinessScore)),
+        matched: matchedSkills.length,
+        missing: missingSkills.length,
+        weeks: Math.max(2, missingSkills.length * 2),
+      };
     }
 
     // Step 3: Detailed skill analysis
-    const { matched, missing } = calculateSkillMatch(resume.skills, job.requiredSkills);
+    // Normalize skills to array format
+    let resumeSkillsArray: string[] = [];
+    if (Array.isArray(resume.skills)) {
+      resumeSkillsArray = resume.skills;
+    } else if (resume.skills && typeof resume.skills === 'object') {
+      // Handle object format with skill categories
+      if (Array.isArray((resume.skills as any).all)) {
+        resumeSkillsArray = (resume.skills as any).all;
+      }
+    }
+
+    const { matched, missing } = calculateSkillMatch(resumeSkillsArray, job.requiredSkills);
 
     // Partial matches (skills that are somewhat related)
-    const partial = resume.skills.filter(
+    const partial = resumeSkillsArray.filter(
       skill =>
         !matched.includes(skill) &&
         job.requiredSkills.some(jobSkill =>

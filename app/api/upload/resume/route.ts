@@ -1,106 +1,124 @@
-import { NextResponse } from "next/server";
-import { parseResumeFromExtraction, type ResumeParsed } from "../../../../lib/resume/parse";
-import { execFile } from "node:child_process";
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import os from "node:os";
-import crypto from "node:crypto";
+import { NextRequest, NextResponse } from 'next/server'
+import { createServerSupabaseClient, getServerUser } from '@/lib/supabase/server'
+import { uploadAndParseResume } from '@/lib/resume/services/resume-scraper'
 
-export const runtime = "nodejs"; // Need Node.js for fs + child_process
+export const runtime = 'nodejs'
 
-// Health check
+const MAX_SIZE = 10 * 1024 * 1024
+const SUPPORTED_TYPES = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'])
+const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc']
+
+function isSupportedFile(fileName: string, mimeType: string): boolean {
+  const lower = fileName.toLowerCase()
+  return SUPPORTED_TYPES.has(mimeType.toLowerCase()) || SUPPORTED_EXTENSIONS.some((ext) => lower.endsWith(ext))
+}
+
 export async function GET() {
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    message: 'Resume upload API is ready',
+    supportedTypes: ['pdf', 'docx', 'doc'],
+    maxSizeBytes: MAX_SIZE,
+  })
 }
 
-/*
-Curl example:
-
-curl -X POST http://localhost:3000/api/upload/resume -F "file=@./resume.pdf"
-
-*/
-
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
-
-export async function POST(req: Request): Promise<Response> {
+export async function POST(req: NextRequest): Promise<Response> {
   try {
-    const contentType = req.headers.get("content-type") || "";
-    if (!contentType.toLowerCase().includes("multipart/form-data")) {
-      return NextResponse.json({ error: "Unsupported Media Type" }, { status: 415 });
+    const user = await getServerUser()
+    if (!user) {
+      return NextResponse.json(
+        { success: false, data: null, error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
-    const form = await req.formData();
-    const file = form.get("file");
+    const contentType = req.headers.get('content-type') || ''
+    if (!contentType.toLowerCase().includes('multipart/form-data')) {
+      return NextResponse.json(
+        { success: false, data: null, error: 'Unsupported Media Type' },
+        { status: 415 }
+      )
+    }
+
+    const form = await req.formData()
+    const file = form.get('file')
     if (!file || !(file instanceof File)) {
-      return NextResponse.json({ error: "Missing file" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, data: null, error: 'Missing file' },
+        { status: 400 }
+      )
     }
 
-    const fileName = file.name || "upload.pdf";
-    const fileType = (file.type || "").toLowerCase();
-    const isPdf = fileType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-    if (!isPdf) {
-      return NextResponse.json({ error: "Unsupported file type. Only PDF allowed." }, { status: 415 });
+    const fileName = file.name || 'resume.pdf'
+    const fileType = (file.type || '').toLowerCase()
+
+    if (!isSupportedFile(fileName, fileType)) {
+      return NextResponse.json(
+        { success: false, data: null, error: 'Unsupported file type. Supported: PDF, DOCX, DOC' },
+        { status: 415 }
+      )
     }
 
-    const size = (file as any).size as number;
-    if (typeof size === "number" && size > MAX_SIZE) {
-      return NextResponse.json({ error: "File too large (max 5MB)" }, { status: 413 });
+    if (file.size > MAX_SIZE) {
+      return NextResponse.json(
+        { success: false, data: null, error: `File too large (max ${Math.round(MAX_SIZE / 1024 / 1024)}MB)` },
+        { status: 413 }
+      )
     }
 
-    // Save to /tmp
-    const uuid = crypto.randomUUID();
-    const tmpDir = os.tmpdir();
-    const tmpPath = path.join(tmpDir, `resume-${uuid}.pdf`);
+    const fileBytes = Buffer.from(await file.arrayBuffer())
+    const supabase = await createServerSupabaseClient()
+    const result = await uploadAndParseResume({
+      supabase,
+      userId: user.id,
+      fileName,
+      mimeType: fileType,
+      fileBytes,
+    })
 
-    const buf = Buffer.from(await file.arrayBuffer());
-    await fs.writeFile(tmpPath, buf);
-
-    // Run python extractor
-    const extraction = await runPythonExtractor(tmpPath);
-    // Clean up file
-    void fs.unlink(tmpPath).catch(() => {});
-
-    // Parse to required schema
-    let parsed: ResumeParsed | null = null;
-    try {
-      parsed = parseResumeFromExtraction(extraction);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return NextResponse.json({ error: `Parser failure: ${msg}` }, { status: 500 });
+    const responseData = {
+      resume_id: result.resumeId,
+      resume: {
+        file_name: result.fileName,
+        skills: result.parsedJson.skills,
+        years_experience: result.parsedStructured?.yearsExperience ?? null,
+        seniority: result.parsedStructured?.seniority ?? null,
+        domain: result.parsedStructured?.domain ?? null,
+      },
+      resume_data: {
+        file_name: result.fileName,
+        rawText: result.parsedJson.rawText,
+        skills: result.parsedJson.skills,
+        tech_stack: result.parsedJson.techStack,
+        metadata: result.parsedJson.metadata ?? {},
+        structured: result.parsedStructured ?? null,
+        parsed_at: result.parsedAt,
+        source: 'resume_scrape_v2',
+      },
+      // Backward-compatible fields expected by interviewer flow.
+      skills: result.parsedStructured?.skills ?? result.parsedJson.skills,
+      yearsExperience: result.parsedStructured?.yearsExperience ?? 0,
+      seniority: result.parsedStructured?.seniority ?? 'Entry',
+      domain: result.parsedStructured?.domain,
+      education: result.parsedStructured?.education,
+      meta: result.parsedStructured?.meta,
     }
 
-    // Return strictly matching shape
-    return NextResponse.json(parsed, { status: 200 });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: true,
+        data: responseData,
+        error: null,
+        ...responseData,
+      },
+      { status: 200 }
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('[Upload Resume] Error:', message)
+    return NextResponse.json(
+      { success: false, data: null, error: message },
+      { status: 500 }
+    )
   }
-}
-
-async function runPythonExtractor(tmpPath: string): Promise<{ rawText: string; pages: string[]; error?: string | null }> {
-  // TODO: Consider swapping to Node pdf-parse for Vercel later
-  return await new Promise((resolve) => {
-    execFile(
-      "python3",
-      [path.join(process.cwd(), "scripts", "pdf_parser.py"), tmpPath],
-      { maxBuffer: 10 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        let payload: { rawText: string; pages: string[]; error?: string | null } = { rawText: "", pages: [], error: null };
-        try {
-          if (stdout) {
-            payload = JSON.parse(stdout.toString());
-          } else if (stderr) {
-            payload = { rawText: "", pages: [], error: stderr.toString() };
-          }
-        } catch (e) {
-          payload = { rawText: "", pages: [], error: `JSON parse error: ${(e as Error).message}` };
-        }
-        if (error) {
-          const baseErr = error.message || String(error);
-          payload.error = payload.error ? `${payload.error}; ${baseErr}` : baseErr;
-        }
-        resolve(payload);
-      }
-    );
-  });
 }

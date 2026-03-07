@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useAuth } from '@/lib/supabase/auth-context'
 import { 
   Link as LinkIcon,
   Upload,
@@ -28,14 +29,7 @@ import {
 import { LimelightNav } from '@/components/ui/limelight-nav-new'
 import { ProfileDropdown } from '@/components/ui/profile-dropdown'
 import { cn } from '@/lib/utils'
-
-// Mock data for previous analyses
-const previousAnalyses = [
-  { id: 1, company: 'Google', position: 'Senior SWE', date: 'Jan 28', score: 85, status: 'completed' },
-  { id: 2, company: 'Amazon', position: 'SDE II', date: 'Jan 25', score: 72, status: 'completed' },
-  { id: 3, company: 'Meta', position: 'E4 Engineer', date: 'Jan 22', score: 78, status: 'completed' },
-  { id: 4, company: 'Apple', position: 'Software Engineer', date: 'Jan 20', score: 68, status: 'completed' },
-]
+import { supabase } from '@/lib/supabase/client'
 
 const mockSkills = ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'REST APIs', 'Git', 'Agile', 'Testing']
 const mockMissingSkills = [
@@ -56,26 +50,474 @@ const navItems = [
   { id: "calendar", icon: <Calendar />, label: "Calendar", href: "/calendar" },
 ]
 
+interface SavedAnalysis {
+  id: string
+  company: string
+  position: string
+  date: string
+  score: number
+  url: string
+  status: 'completed' | 'in-progress'
+}
+
 export default function AnalysisPage() {
   const [url, setUrl] = useState('')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showResults, setShowResults] = useState(false)
-  const [selectedAnalysis, setSelectedAnalysis] = useState<number | null>(null)
+  const [selectedAnalysis, setSelectedAnalysis] = useState<string | null>(null)
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveConfirmation, setSaveConfirmation] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' })
+  const [selectedAnalysisData, setSelectedAnalysisData] = useState<any | null>(null)
+  const [scrapeError, setScrapeError] = useState<string | null>(null)
+  const [rawScrapePayload, setRawScrapePayload] = useState<Record<string, unknown> | null>(null)
+  const [resumeText, setResumeText] = useState<string | null>(null)
+  const [resumeExtractError, setResumeExtractError] = useState<string | null>(null)
+  const [parsedResume, setParsedResume] = useState<{
+    contact: { name: string | null; email: string | null; phone: string | null; linkedin: string | null; github: string | null; location: string | null }
+    summary: string | null
+    experience: { title: string | null; company: string | null; startDate: string | null; endDate: string | null; current: boolean; highlights: string[] }[]
+    education: { degree: string | null; institution: string | null; startDate: string | null; endDate: string | null; gpa: string | null }[]
+    skills: { technical: string[]; languages: string[]; frameworks: string[]; tools: string[]; all: string[] }
+    certifications: string[]
+    projects: { name: string | null; description: string; technologies: string[]; highlights: string[] }[]
+  } | null>(null)
+  const [jobData, setJobData] = useState<{
+    job_title: string
+    company_name: string
+    required_skills: string[]
+    preferred_skills: string[]
+    qualities: string[]
+    job_url?: string
+    description?: string
+    years_required?: number | null
+    location?: string | null
+    employment_type?: string | string[] | null
+    tech_stack?: string[]
+    raw_html_length?: number
+    scrape_error?: string | null
+    source?: string
+  } | null>(null)
+  const [analysisResults, setAnalysisResults] = useState<{
+    readiness: { score: number; interpretation: string; confidence: number }
+    skillMatch: { matched: string[]; partial: string[]; missing: string[]; matchPercentage: number }
+    experienceGap: { yearsRequired: number; yearsActual: number; gap: number; assessment: string }
+    timeline: Array<{ skill: string; weeks: number; priority: 'high' | 'medium' | 'low' }>
+    recommendations: any[]
+    summary: string
+  } | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const coverLetterInputRef = useRef<HTMLInputElement>(null)
+  
+  // Get auth context
+  const { session, loading: authLoading } = useAuth()
 
-  const handleAnalyze = () => {
-    if (!url || !resumeFile) return
+  // Load saved analyses from database on mount and when auth is ready
+  useEffect(() => {
+    if (authLoading) return // Wait for auth to be ready
+    
+    const loadSavedAnalyses = async () => {
+      try {
+        if (!session) {
+          // No session, clear saved analyses
+          setSavedAnalyses([])
+          return
+        }
+
+        const response = await fetch('/api/analysis/list', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        })
+
+        const result = await response.json()
+        console.log('[Analysis] Loaded analyses from database:', result)
+        
+        if (result.success && result.data) {
+          const formattedAnalyses = result.data.map((analysis: any) => {
+            // Use analysis results score if available, otherwise use stored match_score
+            const score = analysis.analysis_results?.readiness?.score || analysis.match_score || 72
+            return {
+              id: analysis.id,
+              company: analysis.company_name,
+              position: analysis.position_title,
+              date: new Date(analysis.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              score: score,
+              url: analysis.job_url,
+              status: 'completed' as const,
+            }
+          })
+          setSavedAnalyses(formattedAnalyses)
+          console.log('[Analysis] Formatted analyses:', formattedAnalyses)
+        } else {
+          console.log('[Analysis] API returned no data, clearing analyses')
+          setSavedAnalyses([])
+        }
+      } catch (error) {
+        console.error('[Analysis] Failed to load saved analyses:', error)
+        // On error, don't use localStorage fallback anymore - just show empty
+        setSavedAnalyses([])
+      }
+    }
+
+    loadSavedAnalyses()
+  }, [authLoading, session])
+
+  const saveAnalysis = async () => {
+    if (!jobData) return
+    
+    setIsSaving(true)
+    
+    try {
+      // Use session from auth hook (already available)
+      if (!session) {
+        console.log('[Analysis Save] No session found')
+        setSaveConfirmation({ show: true, message: 'Please sign in to save analyses', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        setIsSaving(false)
+        return
+      }
+
+      console.log('[Analysis Save] Starting save, user:', session.user?.id)
+
+      const response = await fetch('/api/analysis/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          company: jobData.company_name || 'Unknown Company',
+          position: jobData.job_title || 'Unknown Position',
+          score: analysisResults?.readiness.score || 72,
+          url: url,
+          jobData: jobData,
+          analysisResults: analysisResults,
+        }),
+      })
+
+      console.log('[Analysis Save] API Response status:', response.status)
+      const result = await response.json()
+      console.log('[Analysis Save] API Response:', result)
+
+      if (result.success) {
+        const newAnalysis: SavedAnalysis = {
+          id: result.data?.id || Date.now().toString(),
+          company: jobData.company_name || 'Unknown Company',
+          position: jobData.job_title || 'Unknown Position',
+          date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          score: analysisResults?.readiness.score || 72,
+          url: url,
+          status: 'completed',
+        }
+        
+        setSavedAnalyses([newAnalysis, ...savedAnalyses])
+        setSelectedAnalysis(newAnalysis.id)
+        
+        setSaveConfirmation({ show: true, message: '✓ Analysis saved successfully!', type: 'success' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      } else {
+        const errorMsg = result.error || result.details?.message || 'Failed to save analysis'
+        console.error('[Analysis Save] API Error:', errorMsg, result.details)
+        setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 4000)
+      }
+    } catch (error) {
+      console.error('[Analysis Save] Error:', error)
+      const errorMsg = error instanceof Error ? error.message : 'Error saving analysis'
+      setSaveConfirmation({ show: true, message: errorMsg, type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const loadSavedAnalysis = async (analysisId: string) => {
+    try {
+      console.log('[Analysis Load] Loading analysis with ID:', analysisId)
+      
+      // Use session from auth hook (already available)
+      if (session) {
+        const response = await fetch('/api/analysis/list', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        })
+        
+        const result = await response.json()
+        
+        if (result.success && result.data) {
+          const analysis = result.data.find((a: any) => a.id === analysisId)
+          if (analysis) {
+            console.log('[Analysis Load] Found in database:', analysis)
+            
+            // Extract jobData and analysisResults from job_data
+            const jobDataFromDb = analysis.job_data
+            const analysisResultsFromDb = jobDataFromDb?.analysisResults || null
+            
+            // Remove analysisResults from jobData when setting it
+            const cleanJobData = jobDataFromDb ? { ...jobDataFromDb } : null
+            delete cleanJobData?.analysisResults
+            
+            setSelectedAnalysisData(jobDataFromDb)
+            setJobData(cleanJobData)
+            setUrl(analysis.job_url)
+            
+            // Restore analysis results
+            if (analysisResultsFromDb) {
+              console.log('[Analysis Load] Restoring analysis results')
+              setAnalysisResults(analysisResultsFromDb)
+            } else {
+              setAnalysisResults(null)
+            }
+            
+            setShowResults(true)
+            return
+          }
+        }
+      }
+      
+      console.log('[Analysis Load] Failed to load from database')
+      setSaveConfirmation({ show: true, message: 'Could not load analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    } catch (error) {
+      console.error('[Analysis Load] Error:', error)
+      setSaveConfirmation({ show: true, message: 'Error loading analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    }
+  }
+
+  const deleteAnalysis = async (id: string) => {
+    try {
+      // Use session from auth hook (already available)
+      if (!session) {
+        setSaveConfirmation({ show: true, message: 'Please sign in to delete analyses', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+        return
+      }
+
+      const response = await fetch('/api/analysis/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ analysisId: id }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setSavedAnalyses(savedAnalyses.filter(a => a.id !== id))
+        if (selectedAnalysis === id) {
+          setSelectedAnalysis(null)
+        }
+        setSaveConfirmation({ show: true, message: '✓ Analysis deleted', type: 'success' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      } else {
+        setSaveConfirmation({ show: true, message: 'Failed to delete analysis', type: 'error' })
+        setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+      }
+    } catch (error) {
+      console.error('[Analysis Delete] Error:', error)
+      setSaveConfirmation({ show: true, message: 'Error deleting analysis', type: 'error' })
+      setTimeout(() => setSaveConfirmation({ show: false, message: '', type: 'success' }), 3000)
+    }
+  }
+
+  const handleAnalyze = async () => {
+    console.log('[Job Analysis] handleAnalyze called, url:', url, 'resumeFile:', resumeFile?.name)
+    if (!url || !resumeFile) {
+      console.warn('[Job Analysis] Missing url or resumeFile, aborting')
+      return
+    }
     setIsAnalyzing(true)
-    setTimeout(() => {
-      setIsAnalyzing(false)
+    setScrapeError(null)
+    setRawScrapePayload(null)
+    setResumeText(null)
+    setResumeExtractError(null)
+    setParsedResume(null)
+
+    try {
+      let accessToken: string | undefined
+      try {
+        // Add timeout to prevent hanging
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error('Session timeout')), 3000)
+        )
+        const result = await Promise.race([sessionPromise, timeoutPromise])
+        if (result && 'data' in result) {
+          accessToken = result.data.session?.access_token
+        }
+      } catch (error) {
+        console.warn('[Job Analysis] Failed to read session, continuing without auth:', error)
+      }
+
+      console.log('[Job Analysis] Starting scrape for URL:', url)
+      
+      let response: Response
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+        
+        response = await fetch('/api/job/scrape', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({ jobUrl: url }),
+          signal: controller.signal,
+        })
+        
+        clearTimeout(timeoutId)
+      } catch (fetchError) {
+        console.error('[Job Analysis] Network fetch failed:', fetchError)
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error('Request timeout - the job page took too long to load')
+        }
+        throw new Error(`Network error: ${fetchError instanceof Error ? fetchError.message : 'Failed to reach API'}`)
+      }
+
+      console.log('[Job Analysis] API Response status:', response.status)
+
+      let payload: any
+      try {
+        payload = await response.json()
+      } catch (parseError) {
+        console.error('[Job Analysis] Failed to parse response JSON:', parseError)
+        const text = await response.text()
+        console.error('[Job Analysis] Response text:', text)
+        throw new Error(`Invalid response format: ${parseError instanceof Error ? parseError.message : 'Failed to parse JSON'}`)
+      }
+
+      setRawScrapePayload(payload ?? null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || `API error: ${response.status} ${response.statusText}`)
+      }
+
+      if (!payload?.success) {
+        throw new Error(payload?.error || 'Job scrape failed')
+      }
+
+      setJobData(payload.job_data ?? payload.job)
+
+      // Extract text from resume file
+      console.log('[Job Analysis] Extracting text from resume:', resumeFile.name)
+      let extractedResume: any = null
+      try {
+        const resumeFormData = new FormData()
+        resumeFormData.append('file', resumeFile)
+
+        const resumeResponse = await fetch('/api/resume/extract', {
+          method: 'POST',
+          body: resumeFormData,
+        })
+
+        const resumePayload = await resumeResponse.json()
+        console.log('[Job Analysis] Resume extraction result:', resumePayload.success, resumePayload.text?.length || 0, 'chars')
+
+        if (resumePayload.success && resumePayload.text) {
+          setResumeText(resumePayload.text)
+          if (resumePayload.parsed) {
+            setParsedResume(resumePayload.parsed)
+            extractedResume = resumePayload.parsed
+          }
+        } else {
+          setResumeExtractError(resumePayload.error || 'Failed to extract resume text')
+        }
+      } catch (resumeError) {
+        console.error('[Job Analysis] Resume extraction failed:', resumeError)
+        setResumeExtractError(resumeError instanceof Error ? resumeError.message : 'Resume extraction failed')
+      }
+
+      // Now call analyze endpoint with both resume and job data
+      if (extractedResume && (payload.job_data ?? payload.job)) {
+        setAnalysisLoading(true)
+        setAnalysisError(null)
+        try {
+          const jobDataForAnalysis = payload.job_data ?? payload.job
+          
+          // Transform the extracted resume to match ResumeParsed format expected by analyze endpoint
+          const resumeForAnalysis = {
+            ...extractedResume,
+            // Flatten skills - combine all skill categories into one array
+            skills: extractedResume.skills?.all || extractedResume.skills || [],
+            yearsExperience: extractedResume.yearsExperience || 0,
+            seniority: extractedResume.seniority || 'Mid',
+            domain: extractedResume.domain || 'Full-Stack',
+          }
+
+          // Map the job data to the format expected by the analyze endpoint
+          const jobForAnalysis = {
+            title: jobDataForAnalysis.job_title || 'Unknown Position',
+            requiredSkills: jobDataForAnalysis.required_skills || [],
+            yearsRequired: String(jobDataForAnalysis.years_required || '0'),
+            seniority: 'Mid' as const,
+            domain: 'Full-Stack' as const,
+            description: jobDataForAnalysis.description || '',
+            url: jobDataForAnalysis.job_url || url,
+          }
+
+          const analyzeResponse = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              resume: resumeForAnalysis,
+              job: jobForAnalysis,
+            }),
+          })
+
+          const analyzePayload = await analyzeResponse.json()
+          console.log('[Job Analysis] Analysis result:', analyzePayload.success)
+
+          if (analyzePayload.success && analyzePayload.data) {
+            setAnalysisResults(analyzePayload.data)
+          } else {
+            setAnalysisError(analyzePayload.error || 'Failed to run analysis')
+          }
+        } catch (analyzeError) {
+          console.error('[Job Analysis] Analysis failed:', analyzeError)
+          setAnalysisError(analyzeError instanceof Error ? analyzeError.message : 'Analysis failed')
+        } finally {
+          setAnalysisLoading(false)
+        }
+      }
+
       setShowResults(true)
-    }, 2500)
+    } catch (error) {
+      console.error('[Job Analysis] Scrape failed:', error)
+      setScrapeError(error instanceof Error ? error.message : 'Job scrape failed')
+      setJobData(null)
+      setShowResults(true)
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
   const canAnalyze = url.length > 0 && resumeFile !== null
+
+  const matchedSkills = analysisResults?.skillMatch.matched || (jobData?.required_skills?.length
+    ? jobData.required_skills
+    : mockSkills)
+
+  const missingSkills = analysisResults?.skillMatch.missing.map(skill => ({
+    skill,
+    priority: 'medium' as const,
+    resources: 3,
+  })) || (jobData?.preferred_skills?.length
+    ? jobData.preferred_skills.map((skill) => ({
+        skill,
+        priority: 'medium' as const,
+        resources: 3,
+      }))
+    : mockMissingSkills)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-black to-black/80 text-white overflow-x-hidden">
@@ -106,50 +548,59 @@ export default function AnalysisPage() {
               <div className="bg-gradient-to-r from-cyan-500/20 to-blue-600/20 px-6 py-4 border-b border-white/10">
                 <h3 className="font-semibold text-white flex items-center gap-2">
                   <History className="w-4 h-4" />
-                  Previous Analyses
+                  {savedAnalyses.length > 0 ? 'Saved Analyses' : 'No Analyses'}
                 </h3>
               </div>
               <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto">
-                {previousAnalyses.map((analysis) => (
-                  <motion.div
-                    key={analysis.id}
-                    whileHover={{ x: 4 }}
-                    onClick={() => setSelectedAnalysis(analysis.id)}
-                    className={cn(
-                      'px-6 py-4 cursor-pointer transition-all',
-                      selectedAnalysis === analysis.id
-                        ? 'bg-cyan-500/20 border-l-2 border-cyan-500'
-                        : 'hover:bg-white/5'
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <h4 className="text-sm font-semibold text-white truncate">{analysis.company}</h4>
-                        <p className="text-xs text-white/60 truncate">{analysis.position}</p>
+                {savedAnalyses.length === 0 ? (
+                  <div className="px-6 py-8 text-center">
+                    <p className="text-xs text-white/40">Run an analysis and save it to see it here</p>
+                  </div>
+                ) : (
+                  savedAnalyses.map((analysis) => (
+                    <motion.div
+                      key={analysis.id}
+                      whileHover={{ x: 4 }}
+                      onClick={() => {
+                        setSelectedAnalysis(analysis.id)
+                        loadSavedAnalysis(analysis.id)
+                      }}
+                      className={cn(
+                        'px-6 py-4 cursor-pointer transition-all',
+                        selectedAnalysis === analysis.id
+                          ? 'bg-cyan-500/20 border-l-2 border-cyan-500'
+                          : 'hover:bg-white/5'
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <h4 className="text-sm font-semibold text-white truncate">{analysis.company}</h4>
+                          <p className="text-xs text-white/60 truncate">{analysis.position}</p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteAnalysis(analysis.id)
+                          }}
+                          className="text-white/40 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          // Delete handler
-                        }}
-                        className="text-white/40 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-white/50">{analysis.date}</span>
-                      <div className={cn(
-                        'text-xs font-bold px-2 py-1 rounded',
-                        analysis.score >= 80 ? 'bg-green-500/20 text-green-400' :
-                        analysis.score >= 70 ? 'bg-amber-500/20 text-amber-400' :
-                        'bg-red-500/20 text-red-400'
-                      )}>
-                        {analysis.score}%
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-white/50">{analysis.date}</span>
+                        <div className={cn(
+                          'text-xs font-bold px-2 py-1 rounded',
+                          analysis.score >= 80 ? 'bg-green-500/20 text-green-400' :
+                          analysis.score >= 70 ? 'bg-amber-500/20 text-amber-400' :
+                          'bg-red-500/20 text-red-400'
+                        )}>
+                          {analysis.score}%
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  ))
+                )}
               </div>
             </div>
           </motion.div>
@@ -317,73 +768,218 @@ export default function AnalysisPage() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-6"
               >
+                  {scrapeError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-red-500/20 backdrop-blur-xl rounded-2xl border border-red-500/50 p-6 sticky top-32"
+                    >
+                      <div className="flex items-center gap-3">
+                        <X className="w-5 h-5 text-red-400 flex-shrink-0" />
+                        <div>
+                          <h3 className="font-semibold text-red-200">Job Scraping Failed</h3>
+                          <p className="text-sm text-red-300 mt-1">{scrapeError}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                {analysisError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-red-500/20 backdrop-blur-xl rounded-2xl border border-red-500/50 p-6"
+                  >
+                    <div className="flex items-center gap-3">
+                      <X className="w-5 h-5 text-red-400 flex-shrink-0" />
+                      <div>
+                        <h3 className="font-semibold text-red-200">Analysis Error</h3>
+                        <p className="text-sm text-red-300 mt-1">{analysisError}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Match Score */}
                 <motion.div
                   whileHover={{ scale: 1.02 }}
                   className="bg-gradient-to-br from-cyan-500/20 to-blue-600/20 backdrop-blur-xl rounded-2xl border border-cyan-500/30 p-8 hover:border-cyan-500/50 transition-all duration-300"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-6">
                     <div>
                       <h3 className="text-lg font-semibold text-white mb-2">Overall Match Score</h3>
                       <p className="text-white/60">Based on your resume and the job requirements</p>
                     </div>
                     <div className="text-right">
-                      <div className="text-5xl font-bold text-cyan-400 mb-1">72%</div>
-                      <span className="text-sm text-green-400">Good Fit</span>
+                      {analysisLoading ? (
+                        <div className="flex flex-col items-end gap-2">
+                          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                          <span className="text-sm text-white/40">Analyzing...</span>
+                        </div>
+                      ) : analysisResults ? (
+                        <>
+                          <div className="text-5xl font-bold text-cyan-400 mb-1">{analysisResults.readiness.score}%</div>
+                          <span className={cn(
+                            'text-sm font-semibold',
+                            analysisResults.readiness.score >= 80 ? 'text-green-400' :
+                            analysisResults.readiness.score >= 60 ? 'text-amber-400' :
+                            analysisResults.readiness.score >= 40 ? 'text-orange-400' :
+                            'text-red-400'
+                          )}>
+                            {analysisResults.readiness.interpretation}
+                          </span>
+                        </>
+                      ) : analysisError ? (
+                        <div className="text-right">
+                          <X className="w-6 h-6 text-red-400 mb-2" />
+                          <p className="text-xs text-red-400">Analysis failed</p>
+                        </div>
+                      ) : (
+                        <div className="text-right">
+                          <div className="text-5xl font-bold text-white/40 mb-1">--</div>
+                          <span className="text-sm text-white/40">Pending</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </motion.div>
 
+                {/* Resume Parsing Error */}
+                {resumeExtractError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-red-500/10 backdrop-blur-xl rounded-2xl border border-red-500/30 p-6"
+                  >
+                    <div className="flex items-center gap-3">
+                      <X className="w-5 h-5 text-red-400 flex-shrink-0" />
+                      <div>
+                        <h3 className="font-semibold text-red-200">Resume Parsing Error</h3>
+                        <p className="text-sm text-red-300 mt-1">{resumeExtractError}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Matched Skills */}
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3 mb-6">
-                    <Check className="w-6 h-6 text-green-400" />
-                    <h3 className="text-xl font-semibold text-white">Matched Skills</h3>
-                  </div>
-                  <div className="grid md:grid-cols-2 gap-3">
-                    {mockSkills.map((skill) => (
-                      <motion.div
-                        key={skill}
-                        whileHover={{ x: 4 }}
-                        className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 flex items-center gap-2"
-                      >
-                        <Check className="w-4 h-4 text-green-400" />
-                        <span className="text-white">{skill}</span>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
+                {analysisResults && analysisResults.skillMatch.matched.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-green-500/10 backdrop-blur-xl rounded-2xl border border-green-500/30 p-8"
+                  >
+                    <div className="flex items-center gap-3 mb-6">
+                      <Check className="w-6 h-6 text-green-400" />
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">Matched Skills</h3>
+                        <p className="text-sm text-green-400">{analysisResults.skillMatch.matched.length} of {analysisResults.skillMatch.matched.length + analysisResults.skillMatch.missing.length} required</p>
+                      </div>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      {analysisResults.skillMatch.matched.map((skill) => (
+                        <motion.div
+                          key={skill}
+                          whileHover={{ x: 4 }}
+                          className="bg-green-500/20 border border-green-500/50 rounded-lg px-4 py-3 flex items-center gap-2"
+                        >
+                          <Check className="w-4 h-4 text-green-400" />
+                          <span className="text-white">{skill}</span>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* Missing Skills */}
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3 mb-6">
-                    <Target className="w-6 h-6 text-amber-400" />
-                    <h3 className="text-xl font-semibold text-white">Skills to Develop</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {mockMissingSkills.map((item) => (
-                      <motion.div
-                        key={item.skill}
-                        whileHover={{ x: 4 }}
-                        className="flex items-center justify-between p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg"
-                      >
-                        <div>
-                          <h4 className="text-white font-medium">{item.skill}</h4>
-                          <p className="text-sm text-white/60">Priority: {item.priority}</p>
-                        </div>
-                        <span className="text-sm text-amber-400">{item.resources} resources</span>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
+                {analysisResults && (
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-6">
+                      <Target className="w-6 h-6 text-amber-400" />
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">Skills to Develop</h3>
+                        <p className="text-sm text-white/60">{analysisResults.timeline.length} skill(s) to learn</p>
+                      </div>
+                    </div>
+                    {analysisResults.timeline.length > 0 ? (
+                      <div className="space-y-3">
+                        {analysisResults.timeline.map((item) => (
+                          <motion.div
+                            key={item.skill}
+                            whileHover={{ x: 4 }}
+                            className="flex items-center justify-between p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg"
+                          >
+                            <div>
+                              <h4 className="text-white font-medium">{item.skill}</h4>
+                              <p className="text-sm text-white/60">Priority: {item.priority} • {item.weeks} weeks to learn</p>
+                            </div>
+                            <Clock className="w-5 h-5 text-amber-400" />
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 text-white/60">
+                        No missing skills! You have all required skills for this role.
+                      </div>
+                    )}
+                  </motion.div>
+                )}
 
-                {/* Recommended Resources */}
+                {/* Analysis Summary */}
+                {analysisResults && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-blue-500/10 backdrop-blur-xl rounded-2xl border border-blue-500/30 p-8"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                        <Sparkles className="w-5 h-5 text-blue-400" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-white mb-2">Analysis Summary</h3>
+                        <p className="text-white/80 leading-relaxed whitespace-pre-wrap">{analysisResults.summary}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Experience Gap Analysis */}
+                {analysisResults && (
+                  <motion.div
+                    whileHover={{ scale: 1.01 }}
+                    className="bg-purple-500/10 backdrop-blur-xl rounded-2xl border border-purple-500/30 p-8"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <TrendingUp className="w-6 h-6 text-purple-400" />
+                      <h3 className="text-lg font-semibold text-white">Experience Analysis</h3>
+                    </div>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div className="bg-black/20 rounded-lg p-4">
+                        <p className="text-white/60 text-sm mb-1">Required</p>
+                        <p className="text-2xl font-bold text-purple-400">{analysisResults.experienceGap.yearsRequired} yrs</p>
+                      </div>
+                      <div className="bg-black/20 rounded-lg p-4">
+                        <p className="text-white/60 text-sm mb-1">Your Experience</p>
+                        <p className="text-2xl font-bold text-purple-400">{analysisResults.experienceGap.yearsActual} yrs</p>
+                      </div>
+                      <div className="bg-black/20 rounded-lg p-4">
+                        <p className="text-white/60 text-sm mb-1">Gap</p>
+                        <p className={cn(
+                          'text-2xl font-bold',
+                          analysisResults.experienceGap.gap === 0 ? 'text-green-400' :
+                          analysisResults.experienceGap.gap < 0 ? 'text-orange-400' :
+                          'text-amber-400'
+                        )}>
+                          {analysisResults.experienceGap.gap > 0 ? '+' : ''}{analysisResults.experienceGap.gap.toFixed(1)}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-white/80 mt-4 text-sm">{analysisResults.experienceGap.assessment}</p>
+                  </motion.div>
+                )}
                 <motion.div
                   whileHover={{ scale: 1.02 }}
                   className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 hover:bg-white/10 transition-all duration-300"
@@ -427,13 +1023,25 @@ export default function AnalysisPage() {
                       setUrl('')
                       setResumeFile(null)
                       setCoverLetterFile(null)
+                      setAnalysisResults(null)
+                      setAnalysisError(null)
                     }}
                     className="flex-1 py-3 rounded-xl border border-white/20 text-white hover:bg-white/10 transition-all"
                   >
                     Analyze Another Job
                   </button>
-                  <button className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/50 transition-all">
-                    Save Analysis
+                  <button className={cn("flex-1 py-3 rounded-xl text-white transition-all flex items-center justify-center gap-2", isSaving ? "bg-white/10 cursor-not-allowed" : "bg-gradient-to-r from-cyan-500 to-blue-600 hover:shadow-lg hover:shadow-cyan-500/50")} onClick={saveAnalysis} disabled={isSaving}>
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Save Analysis
+                      </>
+                    )}
                   </button>
                 </motion.div>
               </motion.div>
@@ -442,6 +1050,30 @@ export default function AnalysisPage() {
           </div>
         </div>
       </div>
+
+      {/* Save Confirmation Toast */}
+      <AnimatePresence>
+        {saveConfirmation.show && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
+            className={cn(
+              'fixed top-24 left-1/2 z-50 px-6 py-3 rounded-lg backdrop-blur-xl border font-semibold flex items-center gap-2 transform -translate-x-1/2',
+              saveConfirmation.type === 'success'
+                ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                : 'bg-red-500/20 border-red-500/30 text-red-400'
+            )}
+          >
+            {saveConfirmation.type === 'success' ? (
+              <Check className="w-5 h-5" />
+            ) : (
+              <X className="w-5 h-5" />
+            )}
+            {saveConfirmation.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -368,12 +368,21 @@ export const SignInPage = ({ className }: SignInPageProps) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("")
   const [step, setStep] = useState<"credentials" | "success">("credentials")
-  const [initialCanvasVisible, setInitialCanvasVisible] = useState(true);
+  const [initialCanvasVisible, setInitialCanvasVisible] = useState(false); // Start with false to defer rendering
   const [reverseCanvasVisible, setReverseCanvasVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { signIn, signInWithOAuth, session } = useAuth();
   const router = useRouter();
+
+  // Defer canvas rendering until page is interactive
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setInitialCanvasVisible(true);
+    }, 100); // Small delay to prioritize form rendering
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -384,7 +393,9 @@ export const SignInPage = ({ className }: SignInPageProps) => {
 
     try {
       // Call Supabase authentication
+      console.log('[SignIn] Attempting credentials sign in...');
       await signIn(email, password);
+      console.log('[SignIn] Sign in successful');
       
       // Show success animation
       setReverseCanvasVisible(true);
@@ -395,8 +406,9 @@ export const SignInPage = ({ className }: SignInPageProps) => {
         setStep("success");
       }, 1200);
     } catch (err: any) {
+      console.error('[SignIn] Sign in error:', err);
       setIsLoading(false);
-      const errorMessage = err.message || "Sign in failed. Please try again.";
+      const errorMessage = err?.message || JSON.stringify(err) || "Sign in failed. Please try again.";
       setError(errorMessage);
     }
   };
@@ -406,6 +418,7 @@ export const SignInPage = ({ className }: SignInPageProps) => {
     setIsLoading(true);
 
     try {
+      console.log('[SignIn] Starting Google OAuth sign in...');
       // Show success animation
       setReverseCanvasVisible(true);
       setTimeout(() => {
@@ -418,15 +431,19 @@ export const SignInPage = ({ className }: SignInPageProps) => {
       // Delay OAuth to let success page display
       setTimeout(async () => {
         try {
+          console.log('[SignIn] Triggering OAuth redirect...');
           await signInWithOAuth("google");
+          console.log('[SignIn] OAuth redirect initiated');
         } catch (oauthErr: any) {
+          console.error('[SignIn] OAuth error:', oauthErr);
           setIsLoading(false);
-          setError(oauthErr.message || "Google sign in failed. Please try again.");
+          setError(oauthErr?.message || JSON.stringify(oauthErr) || "Google sign in failed. Please try again.");
         }
       }, 2500);
     } catch (err: any) {
+      console.error('[SignIn] Google sign in error:', err);
       setIsLoading(false);
-      const errorMessage = err.message || "Google sign in failed. Please try again.";
+      const errorMessage = err?.message || JSON.stringify(err) || "Google sign in failed. Please try again.";
       setError(errorMessage);
     }
   };
