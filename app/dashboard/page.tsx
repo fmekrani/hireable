@@ -26,7 +26,7 @@ export default function DashboardPage() {
         <div className="text-center">
           <p className="text-gray-600 mb-6">You need to be logged in to view this page.</p>
           <button
-            onClick={() => router.push('/auth/login')}
+            onClick={() => router.push('/sign-in')}
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
           >
             Go to Login
@@ -40,7 +40,7 @@ export default function DashboardPage() {
     setIsSigningOut(true)
     try {
       await signOut()
-      router.push('/auth/login')
+      router.push('/sign-in')
     } catch (error) {
       console.error('Sign out error:', error)
       setIsSigningOut(false)
